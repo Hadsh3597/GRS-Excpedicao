@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GRS Entregas - Djavan</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="icon" type="image/png" href="https://cdn.grs.tec.br/carros/logo mini tech.png">
+  
+  <style>
+    :root { --primary-color: #5f0c16; --primary-light: #f9f0f1; }
+    body { background-color: #f8f9fa; color: #333; }
+    .logo-container { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
+    .logo-container img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .text-custom-primary { color: var(--primary-color) !important; }
+    .badge-custom-primary { background-color: var(--primary-color); color: #ffffff; }
+    .card-delivery { border-left: 5px solid var(--primary-color); }
+    .alert-custom-info { background-color: var(--primary-light); border-color: #e2c2c6; color: var(--primary-color); }
+    .time-tracker { font-size: 0.75rem; background-color: #f1f3f5; border-radius: 4px; padding: 4px 8px; }
+  </style>
+</head>
+<body>
+
+  <div class="container py-3">
+    <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom">
+      <div class="logo-container">
+        <img src="https://cdn.grs.tec.br/carros/logo%20mini%20tech.png" alt="Logo GRS">
+      </div>
+      <h4 class="m-0 fw-bold text-custom-primary">GRS Entregas</h4>
+    </div>
+
+    <div class="alert alert-custom-info py-2 d-flex justify-content-between align-items-center shadow-sm flex-wrap gap-2">
+      <div class="d-flex align-items-center gap-2">
+        <span class="fw-bold fs-6">Painel de Djavan</span>
+        <span class="badge badge-custom-primary" id="contador-pendentes">0 na rota</span>
+      </div>
+      <button class="btn btn-sm btn-success fw-bold w-100 mt-1" onclick="otimizarRotaMotoboy()">
+        ⚡ Otimizar e Gerar Rota no Google Maps
+      </button>
+    </div>
+    <div id="lista-motoboy" class="vstack gap-3"></div>
+  </div>
+
+  <!-- FIREBASE INTEGRATION SCRIPT -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCVNEMoCrzed5Pn6leILGJd-hgNAbWyo2E",
+      authDomain: "sistema-de-entregas-89bab.firebaseapp.com",
+      databaseURL: "https://sistema-de-entregas-89bab-default-rtdb.firebaseio.com",
+      projectId: "sistema-de-entregas-89bab",
+      storageBucket: "sistema-de-entregas-89bab.firebasestorage.app",
+      messagingSenderId: "383878275976",
+      appId: "1:383878275976:web:4f2d952e2af82ff0c1503d",
+      measurementId: "G-30BH511H4Y"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const dbRef = ref(db, 'entregas');
+
+    let entregasGlobais = [];
+
+    onValue(dbRef, (snapshot) => {
+      const data = snapshot.val();
+      entregasGlobais = [];
+      if (data) {
+        Object.keys(data).forEach(key => {
+          entregasGlobais.push({ ...data[key], firebaseKey: key });
+        });
+      }
+      renderizarLista();
+    });
+
+    window.getEntregas = function() {
+      return entregasGlobais;
+    };
+
+    window.marcarComoEntregue = function(id) {
+      const entrega = entregasGlobais.find(e => e.id === id);
+      if (entrega && entrega.firebaseKey) {
+        update(ref(db, `entregas/${entrega.firebaseKey}`), {
+          status: 'Entregue',
+          hora_conclusao: getHoraAtual()
+        });
+      }
+    };
+
+    window.marcarComoNaoEntregue = function(id) {
+      const motivo = prompt('Informe o motivo pela não entrega (ex: Cliente ausente):');
+      if (motivo !== null && motivo.trim() !== '') {
+        const entrega = entregasGlobais.find(e => e.id === id);
+        if (entrega && entrega.firebaseKey) {
+          update(ref(db, `entregas/${entrega.firebaseKey}`), {
+            status: 'Não Entregue',
+            hora_conclusao: getHoraAtual(),
+            motivo_nao_entrega: motivo.trim()
+          });
+        }
+      }
+    };
+  </script>
+
+  <script>
+    const CIDADE_PADRAO = "Mogi Guaçu, SP";
+    const ENDERECO_PARTIDA = "R. Manoel de Souza Mendes, 91 - Jd Progresso, Mogi Guaçu - SP";
+    const ID_MOTOBOY = '4';
+
+    function getHoraAtual() {
+      return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function calcularDistanciaKm(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    const CACHE_GEO_KEY = 'grs_geo_cache_v1';
+
+    function lerCacheGeo() {
+      try { return JSON.parse(localStorage.getItem(CACHE_GEO_KEY) || '{}'); } catch (e) { return {}; }
+    }
+
+    function salvarCacheGeo(cache) {
+      try { localStorage.setItem(CACHE_GEO_KEY, JSON.stringify(cache)); } catch (e) {}
+    }
+
+    const esperar = ms => new Promise(r => setTimeout(r, ms));
+
+    // Retorna {lat, lng, doCache} ou null se não achou / serviço indisponível
+    async function geocodificar(endereco, cache) {
+      const chave = endereco.trim().toLowerCase();
+      if (cache[chave]) return { ...cache[chave], doCache: true };
+
+      for (let tentativa = 0; tentativa < 2; tentativa++) {
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(endereco)}`;
+          const res = await fetch(url);
+          if (res.status === 429 || res.status >= 500) { await esperar(2000); continue; }
+          if (!res.ok) return null;
+          const data = await res.json();
+          if (data && data.length > 0) {
+            const ponto = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+            cache[chave] = ponto;
+            return { ...ponto, doCache: false };
+          }
+          return null;
+        } catch (e) {
+          await esperar(1000);
+        }
+      }
+      return null;
+    }
+
+    function abrirUrl(url) {
+      const janela = window.open(url, '_blank');
+      if (!janela) window.location.href = url; // celular costuma bloquear popup depois de await
+    }
+
+    function montarUrlMaps(rota) {
+      const originParam = encodeURIComponent(ENDERECO_PARTIDA);
+      const fmt = p => encodeURIComponent(`${p.endereco}, ${CIDADE_PADRAO}`);
+      const destino = fmt(rota[rota.length - 1]);
+      let url = `https://www.google.com/maps/dir/?api=1&origin=${originParam}&destination=${destino}&travelmode=driving`;
+      if (rota.length > 1) url += `&waypoints=${rota.slice(0, -1).map(fmt).join('|')}`;
+      return url;
+    }
+
+    async function otimizarRotaMotoboy() {
+      const entregas = window.getEntregas ? window.getEntregas() : [];
+      const emRota = entregas.filter(e => e.motoboy === ID_MOTOBOY && e.status === 'Na Rota');
+
+      if (emRota.length === 0) {
+        alert('Não há entregas na rota para otimizar.');
+        return;
+      }
+
+      const botao = document.querySelector('button[onclick^="otimizarRotaMotoboy"]');
+      const textoOriginal = botao ? botao.textContent : '';
+      if (botao) { botao.disabled = true; botao.textContent = '⏳ Otimizando rota...'; }
+
+      try {
+        const cache = lerCacheGeo();
+        const partida = (await geocodificar(ENDERECO_PARTIDA, cache)) || { lat: -22.3700, lng: -46.9400 };
+
+        const comCoordenada = [];
+        const semCoordenada = [];
+        for (const entrega of emRota) {
+          const geo = await geocodificar(`${entrega.endereco}, ${CIDADE_PADRAO}`, cache);
+          const item = { dav: entrega.dav, endereco: entrega.endereco };
+          if (geo) comCoordenada.push({ ...item, lat: geo.lat, lng: geo.lng });
+          else semCoordenada.push(item);
+          if (geo && !geo.doCache) await esperar(1100); // limite do Nominatim: 1 requisição/segundo
+        }
+        salvarCacheGeo(cache);
+
+        // vizinho mais próximo
+        const rotaOrdenada = [];
+        const naoVisitados = [...comCoordenada];
+        let pontoAtual = partida;
+        while (naoVisitados.length > 0) {
+          let menor = Infinity, idx = -1;
+          for (let i = 0; i < naoVisitados.length; i++) {
+            const d = calcularDistanciaKm(pontoAtual.lat, pontoAtual.lng, naoVisitados[i].lat, naoVisitados[i].lng);
+            if (d < menor) { menor = d; idx = i; }
+          }
+          pontoAtual = naoVisitados.splice(idx, 1)[0];
+          rotaOrdenada.push(pontoAtual);
+        }
+
+        // refinamento 2-opt
+        let melhorou = true;
+        while (melhorou) {
+          melhorou = false;
+          for (let i = 0; i < rotaOrdenada.length - 1; i++) {
+            for (let j = i + 1; j < rotaOrdenada.length; j++) {
+              const pOrigem = i === 0 ? partida : rotaOrdenada[i - 1];
+              const prox = rotaOrdenada[j + 1] || rotaOrdenada[j];
+              const distAtual = calcularDistanciaKm(pOrigem.lat, pOrigem.lng, rotaOrdenada[i].lat, rotaOrdenada[i].lng) +
+                                calcularDistanciaKm(rotaOrdenada[j].lat, rotaOrdenada[j].lng, prox.lat, prox.lng);
+              const distInvertida = calcularDistanciaKm(pOrigem.lat, pOrigem.lng, rotaOrdenada[j].lat, rotaOrdenada[j].lng) +
+                                    calcularDistanciaKm(rotaOrdenada[i].lat, rotaOrdenada[i].lng, prox.lat, prox.lng);
+              if (distInvertida < distAtual) {
+                const sub = rotaOrdenada.slice(i, j + 1).reverse();
+                rotaOrdenada.splice(i, sub.length, ...sub);
+                melhorou = true;
+              }
+            }
+          }
+        }
+
+        // quem não foi localizado vai no fim, na ordem da lista (o Google Maps acha o endereço sozinho)
+        const rotaFinal = [...rotaOrdenada, ...semCoordenada];
+
+        if (semCoordenada.length > 0) {
+          const dav = semCoordenada.map(p => '#' + p.dav).join(', ');
+          alert(comCoordenada.length === 0
+            ? 'Não consegui localizar os endereços para otimizar agora. Vou abrir o Google Maps na ordem da lista.'
+            : `Não consegui localizar: DAV ${dav}. Ficaram no fim da rota (o Google Maps tenta achar sozinho).`);
+        }
+
+        abrirUrl(montarUrlMaps(rotaFinal));
+
+      } catch (err) {
+        console.error(err);
+        alert('Erro ao otimizar a rota: ' + (err && err.message ? err.message : err));
+      } finally {
+        if (botao) { botao.disabled = false; botao.textContent = textoOriginal; }
+      }
+    }
+
+    function renderizarLista() {
+      const entregas = window.getEntregas ? window.getEntregas() : [];
+      const emRota = entregas.filter(e => e.motoboy === ID_MOTOBOY && e.status === 'Na Rota');
+      
+      document.getElementById('contador-pendentes').textContent = `${emRota.length} na rota`;
+      const container = document.getElementById('lista-motoboy');
+      container.innerHTML = '';
+
+      if (emRota.length === 0) {
+        container.innerHTML = `<div class="text-center text-muted py-5">Nenhuma entrega em rota no momento! 🎉</div>`;
+        return;
+      }
+
+      emRota.forEach(e => {
+        const urlMaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.endereco)}`;
+        const urlWaze = `https://waze.com/ul?q=${encodeURIComponent(e.endereco)}&navigate=yes`;
+
+        const card = document.createElement('div');
+        card.className = 'card shadow-sm card-delivery border-0';
+        card.innerHTML = `
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <h5 class="card-title text-custom-primary fw-bold m-0">DAV #${e.dav}</h5>
+              <span class="fs-5 fw-bold text-success">R$ ${e.valor}</span>
+            </div>
+            <p class="mb-1"><strong>Vendedor:</strong> ${e.vendedor}</p>
+            <p class="mb-1"><strong>Cliente:</strong> ${e.cliente}</p>
+            <p class="mb-1"><strong>Endereço:</strong> ${e.endereco}</p>
+            <p class="mb-1"><strong>Pagamento:</strong> <span class="badge bg-secondary">${e.pagamento}</span></p>
+            ${e.observacoes ? `<p class="mb-2 text-danger small"><strong>Obs:</strong> ${e.observacoes}</p>` : ''}
+            
+            <div class="time-tracker mb-2 text-muted">
+              ⏱️ Entrada: <strong>${e.hora_entrada}</strong> | Saiu p/ Rota: <strong>${e.hora_na_rota}</strong>
+            </div>
+
+            <hr class="my-2">
+            <div class="d-flex gap-2 mt-2">
+              <a href="${urlMaps}" target="_blank" class="btn btn-outline-primary flex-fill">🗺️ Google Maps</a>
+              <a href="${urlWaze}" target="_blank" class="btn btn-outline-info flex-fill">🚗 Waze</a>
+            </div>
+            <div class="d-flex gap-2 mt-2">
+              <button onclick="marcarComoEntregue(${e.id})" class="btn btn-success flex-fill">✅ Concluído</button>
+              <button onclick="marcarComoNaoEntregue(${e.id})" class="btn btn-outline-danger flex-fill">❌ Não Entregue</button>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>

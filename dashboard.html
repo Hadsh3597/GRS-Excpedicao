@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GRS Expedição - Dashboard</title>
+  <link rel="icon" type="image/png" href="https://cdn.grs.tec.br/carros/logo%20mini%20tech.png">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root { --primary-color:#5f0c16; --primary-hover:#43080f; --primary-light:#f9f0f1; }
+    body { background-color:#f8f9fa; color:#333333; }
+    .logo-container{display:inline-flex;align-items:center;justify-content:center;width:45px;height:45px;background-color:transparent;overflow:hidden}
+    .logo-container img{max-width:100%;max-height:100%;object-fit:contain}
+    .text-custom-primary{color:var(--primary-color)!important}.bg-custom-primary{background-color:var(--primary-color)!important;color:#fff!important}
+    .btn-custom-primary{background-color:var(--primary-color);color:#fff;border:none}.btn-custom-primary:hover{background-color:var(--primary-hover);color:#fff}
+    .kpi-card{border:none;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);transition:transform .15s ease-in-out}.kpi-card:hover{transform:translateY(-2px)}
+    .kpi-value{font-size:1.8rem;font-weight:700}.time-badge{font-size:.75rem;font-family:monospace}
+    .copyright-footer{font-size:.65rem;color:#a0a5ab;text-align:center;padding-top:1rem;padding-bottom:.5rem;margin-top:2rem;letter-spacing:.5px;user-select:none}
+    .view-ocorrencias{display:none}
+    .ocorrencia-card{border:none;border-left:4px solid var(--primary-color);border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06)}
+    .ocorrencia-meta{font-size:.82rem}
+  </style>
+</head>
+<body>
+<div class="container-fluid py-4 px-md-5">
+
+  <div id="view-dashboard">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-3">
+      <a href="https://grs.tec.br/hub" class="d-flex align-items-center gap-2 text-decoration-none">
+        <div class="logo-container"><img src="https://cdn.grs.tec.br/carros/logo%20mini%20tech.png" alt="Logo GRS"></div>
+        <div><h3 class="m-0 fw-bold text-custom-primary">GRS Expedição</h3><small class="text-muted">Dashboard de expedição</small></div>
+      </a>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-custom-primary" onclick="abrirTelaOcorrencias()">⚠️ Ocorrências da semana</button>
+        <button class="btn btn-success" onclick="exportarXLSX()">📊 Exportar Relatório XLSX</button>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-4 col-xl-2"><div class="card kpi-card bg-white p-3 border-start border-4 border-primary"><span class="text-muted small fw-bold">TOTAL FATURADO</span><div class="kpi-value text-primary mt-1" id="kpi-faturado">R$ 0,00</div></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="card kpi-card bg-white p-3 border-start border-4 border-dark"><span class="text-muted small fw-bold">TOTAL DE PEDIDOS</span><div class="kpi-value text-dark mt-1" id="kpi-total">0</div></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="card kpi-card bg-white p-3 border-start border-4 border-success"><span class="text-muted small fw-bold">ENTREGUES</span><div class="kpi-value text-success mt-1" id="kpi-entregues">0</div></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="card kpi-card bg-white p-3 border-start border-4 border-info"><span class="text-muted small fw-bold">EM ROTA</span><div class="kpi-value text-info mt-1" id="kpi-em-rota">0</div></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="card kpi-card bg-white p-3 border-start border-4 border-warning"><span class="text-muted small fw-bold">PENDENTES</span><div class="kpi-value text-warning mt-1" id="kpi-pendentes">0</div></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="card kpi-card bg-white p-3 border-start border-4 border-danger"><span class="text-muted small fw-bold">NÃO ENTREGUES</span><div class="kpi-value text-danger mt-1" id="kpi-recusados">0</div></div></div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4"><div class="card-body bg-white py-3"><div class="row g-2 align-items-center">
+      <div class="col-md-3"><input type="text" id="filtro-busca" class="form-control" placeholder="Buscar por DAV ou Cliente..." oninput="filtrarETabela()"></div>
+      <div class="col-md-2"><input type="date" id="filtro-data" class="form-control" onchange="filtrarETabela()" title="Filtrar por Data"></div>
+      <div class="col-md-2"><select id="filtro-vendedor" class="form-select" onchange="filtrarETabela()"><option value="">Todos os Vendedores</option></select></div>
+      <div class="col-md-2"><select id="filtro-motoboy" class="form-select" onchange="filtrarETabela()"><option value="">Todos os Motoboys</option></select></div>
+      <div class="col-md-2"><select id="filtro-status" class="form-select" onchange="filtrarETabela()"><option value="">Todos os Status</option><option value="Pendente">Pendente</option><option value="Na Rota">Na Rota</option><option value="Entregue">Entregue</option><option value="Não Entregue">Não Entregue</option></select></div>
+      <div class="col-md-1"><button class="btn btn-outline-secondary w-100 px-1" onclick="limparFiltros()" title="Limpar Filtros">Limpar</button></div>
+    </div></div></div>
+
+    <div class="row g-4">
+      <div class="col-lg-9"><div class="card shadow-sm border-0"><div class="card-header bg-white fw-bold text-custom-primary d-flex justify-content-between align-items-center"><span>Listagem Detalhada de Entregas</span><span class="badge bg-secondary" id="total-registros">0 registros</span></div><div class="table-responsive">
+        <table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th>Data</th><th>DAV</th><th>Vendedor</th><th>Cliente / Endereço</th><th>Valor / Pgto</th><th>Motoboy</th><th>Status</th><th>Horários (Ent | Rota | Concl)</th></tr></thead><tbody id="tabela-entregas"></tbody></table>
+      </div></div></div>
+      <div class="col-lg-3"><div class="card shadow-sm border-0"><div class="card-header bg-white fw-bold text-custom-primary">Resumo por Motoboy</div><div class="card-body p-0"><ul class="list-group list-group-flush" id="resumo-motoboys"></ul></div></div></div>
+    </div>
+  </div>
+
+  <div id="view-ocorrencias" class="view-ocorrencias">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom flex-wrap gap-3">
+      <div>
+        <h3 class="m-0 fw-bold text-custom-primary">⚠️ Ocorrências da Semana</h3>
+        <small class="text-muted">Ocorrências lançadas no período selecionado</small>
+      </div>
+      <button class="btn btn-outline-secondary" onclick="voltarParaDashboard()">← Voltar ao Dashboard</button>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body bg-white">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label small fw-bold">Semana</label>
+            <input type="week" id="filtro-semana-ocorrencias" class="form-control" onchange="renderizarOcorrenciasSemana()">
+          </div>
+          <div class="col-md-3">
+            <div class="small text-muted">Período</div>
+            <div class="fw-bold text-custom-primary" id="periodo-ocorrencias">--/--/---- até --/--/----</div>
+          </div>
+          <div class="col-md-3">
+            <div class="small text-muted">Total de ocorrências</div>
+            <div class="fw-bold fs-5" id="total-ocorrencias-semana">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="lista-ocorrencias-semana" class="vstack gap-2"></div>
+  </div>
+
+  <footer class="copyright-footer">Desenvolvido por GRS LAB © 2026</footer>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+  const firebaseConfig={apiKey:"AIzaSyCVNEMoCrzed5Pn6leILGJd-hgNAbWyo2E",authDomain:"sistema-de-entregas-89bab.firebaseapp.com",databaseURL:"https://sistema-de-entregas-89bab-default-rtdb.firebaseio.com",projectId:"sistema-de-entregas-89bab",storageBucket:"sistema-de-entregas-89bab.firebasestorage.app",messagingSenderId:"383878275976",appId:"1:383878275976:web:4f2d952e2af82ff0c1503d",measurementId:"G-30BH511H4Y"};
+  const app=initializeApp(firebaseConfig),db=getDatabase(app);
+  const dbRefEntregas=ref(db,'entregas'),dbRefMotoboys=ref(db,'configuracoes/motoboys'),dbRefOcorrencias=ref(db,'ocorrencias');
+
+  const nomesMotoboys={
+    '1':{nome:'Wellington',cor:'#198754'},'2':{nome:'Rogerio',cor:'#0d6efd'},
+    '3':{nome:'Giovane',cor:'#ffc107'},'4':{nome:'Djavan',cor:'#dc3545'}
+  };
+  const padrao=JSON.parse(JSON.stringify(nomesMotoboys));
+  let entregasGlobais=[];
+  let ocorrenciasGlobais=[];
+
+  function aplicarNomesMotoboys(dados){
+    Object.keys(padrao).forEach(id=>{
+      nomesMotoboys[id].nome=String(dados?.[id]?.nome||padrao[id].nome);
+    });
+    popularSelectMotoboys();
+    filtrarETabela();
+    renderizarOcorrenciasSemana();
+  }
+
+  onValue(dbRefMotoboys,snapshot=>aplicarNomesMotoboys(snapshot.val()||padrao),error=>{console.error(error);aplicarNomesMotoboys(padrao);});
+
+  onValue(dbRefEntregas,snapshot=>{
+    const data=snapshot.val();entregasGlobais=[];
+    if(data) Object.keys(data).forEach(key=>entregasGlobais.push({...data[key],firebaseKey:key}));
+    entregasGlobais.sort((a,b)=>(Number(b.id)||0)-(Number(a.id)||0));
+    popularSelectVendedores(entregasGlobais);filtrarETabela();
+  });
+
+  onValue(dbRefOcorrencias,snapshot=>{
+    const data=snapshot.val();ocorrenciasGlobais=[];
+    if(data) Object.keys(data).forEach(key=>ocorrenciasGlobais.push({...data[key],firebaseKey:key}));
+    ocorrenciasGlobais.sort((a,b)=>obterDataOcorrenciaISO(b).localeCompare(obterDataOcorrenciaISO(a)) || (Number(b.id)||0)-(Number(a.id)||0));
+    renderizarOcorrenciasSemana();
+  },error=>{console.error(error);ocorrenciasGlobais=[];renderizarOcorrenciasSemana();});
+
+  window.getEntregas=()=>entregasGlobais;
+  window.getNomesMotoboys=()=>nomesMotoboys;
+  window.formatarMoeda=valor=>Number(valor||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  window.obterDataEntregaISO=e=>{if(e?.data_lancamento)return String(e.data_lancamento).substring(0,10);if(e?.id){const d=new Date(Number(e.id));if(!Number.isNaN(d.getTime()))return d.toISOString().split('T')[0];}return '';};
+  window.formatarDataBr=dataISO=>{if(!dataISO)return'--/--/----';const p=String(dataISO).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:dataISO;};
+
+  function popularSelectMotoboys(){
+    const select=document.getElementById('filtro-motoboy');if(!select)return;
+    const selecionado=select.value;
+    select.innerHTML='<option value="">Todos os Motoboys</option>';
+    Object.keys(nomesMotoboys).forEach(id=>{const op=document.createElement('option');op.value=id;op.textContent=nomesMotoboys[id].nome;select.appendChild(op);});
+    select.value=selecionado;
+  }
+
+  window.popularSelectVendedores=function(entregas){
+    const select=document.getElementById('filtro-vendedor'),valorSelecionado=select.value,vendedores=new Set();
+    entregas.forEach(e=>{if(e.vendedor&&e.vendedor.trim()&&e.vendedor!=='-')vendedores.add(e.vendedor.trim());});
+    select.innerHTML='<option value="">Todos os Vendedores</option>';
+    Array.from(vendedores).sort().forEach(v=>{const op=document.createElement('option');op.value=v;op.textContent=v;select.appendChild(op);});select.value=valorSelecionado;
+  };
+
+  window.atualizarKPIs=function(entregas){
+    const totalFaturado=entregas.reduce((a,e)=>a+(e.status==='Entregue'?Number(e.valor||0):0),0);
+    document.getElementById('kpi-faturado').textContent=window.formatarMoeda(totalFaturado);document.getElementById('kpi-total').textContent=entregas.length;
+    document.getElementById('kpi-entregues').textContent=entregas.filter(e=>e.status==='Entregue').length;document.getElementById('kpi-em-rota').textContent=entregas.filter(e=>e.status==='Na Rota').length;
+    document.getElementById('kpi-pendentes').textContent=entregas.filter(e=>e.status==='Pendente').length;document.getElementById('kpi-recusados').textContent=entregas.filter(e=>e.status==='Não Entregue').length;
+  };
+
+  window.atualizarResumoMotoboys=function(entregas){
+    const c=document.getElementById('resumo-motoboys');c.innerHTML='';Object.keys(nomesMotoboys).forEach(id=>{
+      const mb=entregas.filter(e=>String(e.motoboy)===id),concluidas=mb.filter(e=>e.status==='Entregue'),valor=concluidas.reduce((a,e)=>a+Number(e.valor||0),0);
+      const li=document.createElement('li');li.className='list-group-item d-flex justify-content-between align-items-center py-3';li.innerHTML=`<div><strong class="d-block">${escapeHtml(nomesMotoboys[id].nome)}</strong><small class="text-muted">${concluidas.length}/${mb.length} entregas concluídas</small></div><span class="badge bg-success rounded-pill fs-6">${window.formatarMoeda(valor)}</span>`;c.appendChild(li);
+    });
+  };
+
+  function escapeHtml(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
+
+  window.filtrarETabela=function(){
+    const busca=document.getElementById('filtro-busca').value.toLowerCase(),dataFiltro=document.getElementById('filtro-data').value,vendedor=document.getElementById('filtro-vendedor').value,motoboy=document.getElementById('filtro-motoboy').value,status=document.getElementById('filtro-status').value;
+    const filtradas=entregasGlobais.filter(e=>{const b=!busca||(String(e.dav||'').toLowerCase().includes(busca))||(String(e.cliente||'').toLowerCase().includes(busca));return b&&(!dataFiltro||window.obterDataEntregaISO(e)===dataFiltro)&&(!vendedor||e.vendedor===vendedor)&&(!motoboy||String(e.motoboy)===motoboy)&&(!status||e.status===status);});
+    window.atualizarKPIs(filtradas);window.atualizarResumoMotoboys(filtradas);renderizarTabela(filtradas);
+  };
+
+  function renderizarTabela(entregas){
+    const tbody=document.getElementById('tabela-entregas');document.getElementById('total-registros').textContent=`${entregas.length} registros`;tbody.innerHTML='';
+    if(!entregas.length){tbody.innerHTML='<tr><td colspan="8" class="text-center text-muted py-4">Nenhuma entrega encontrada.</td></tr>';return;}
+    entregas.forEach(e=>{let badge='bg-secondary';if(e.status==='Pendente')badge='bg-warning text-dark';if(e.status==='Na Rota')badge='bg-primary';if(e.status==='Entregue')badge='bg-success';if(e.status==='Não Entregue')badge='bg-danger';const tr=document.createElement('tr');tr.innerHTML=`<td><small class="text-muted fw-bold">${window.formatarDataBr(window.obterDataEntregaISO(e))}</small></td><td><strong>#${escapeHtml(e.dav)}</strong></td><td>${escapeHtml(e.vendedor||'-')}</td><td><div class="fw-bold">${escapeHtml(e.cliente)}</div><small class="text-muted d-block text-truncate" style="max-width:250px;">${escapeHtml(e.endereco)}</small></td><td><div>${window.formatarMoeda(e.valor)}</div><small class="text-muted">${escapeHtml(e.pagamento)}</small></td><td><span class="badge bg-light text-dark border">${escapeHtml(nomesMotoboys[String(e.motoboy)]?.nome||'N/A')}</span></td><td><span class="badge ${badge}">${escapeHtml(e.status)}</span>${e.motivo_nao_entrega?`<small class="d-block text-danger mt-1">Obs: ${escapeHtml(e.motivo_nao_entrega)}</small>`:''}</td><td><div class="time-badge text-muted">📥 ${escapeHtml(e.hora_entrada||'--:--')}</div><div class="time-badge text-muted">🛵 ${escapeHtml(e.hora_na_rota||'--:--')}</div><div class="time-badge text-muted">🏁 ${escapeHtml(e.hora_conclusao||'--:--')}</div></td>`;tbody.appendChild(tr);});
+  }
+
+  window.limparFiltros=function(){document.getElementById('filtro-busca').value='';document.getElementById('filtro-data').value=new Date().toISOString().split('T')[0];document.getElementById('filtro-vendedor').value='';document.getElementById('filtro-motoboy').value='';document.getElementById('filtro-status').value='';window.filtrarETabela();};
+
+  window.exportarXLSX=function(){if(!entregasGlobais.length)return alert('Não há entregas para exportar!');const dados=entregasGlobais.map(e=>({'Data Lançamento':window.formatarDataBr(window.obterDataEntregaISO(e)),'Nº DAV':e.dav,'Vendedor':e.vendedor||'-','Cliente':e.cliente,'Endereço':e.endereco,'Valor (R$)':Number(e.valor||0),'Forma de Pagamento':e.pagamento,'Motoboy':nomesMotoboys[String(e.motoboy)]?.nome||`Motoboy ${e.motoboy}`,'Status':e.status,'Hora Entrada':e.hora_entrada||'-','Hora Na Rota':e.hora_na_rota||'-','Hora Conclusão':e.hora_conclusao||'-','Observações':e.observacoes||'-','Motivo (se não entregue)':e.motivo_nao_entrega||'-'}));const ws=XLSX.utils.json_to_sheet(dados),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Dashboard_Entregas');XLSX.writeFile(wb,`GRS_Dashboard_${new Date().toISOString().split('T')[0]}.xlsx`);};
+
+  /* OCORRÊNCIAS */
+  function obterHojeLocalISO(){
+    const d=new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function obterDataOcorrenciaISO(o){
+    const data=String(o?.data_lancamento||o?.data||o?.dataLancamento||'').trim();
+    if(/^\d{4}-\d{2}-\d{2}/.test(data)) return data.substring(0,10);
+    if(/^\d{2}\/\d{2}\/\d{4}$/.test(data)){
+      const [d,m,a]=data.split('/');
+      return `${a}-${m}-${d}`;
+    }
+    if(o?.id){
+      const dt=new Date(Number(o.id));
+      if(!Number.isNaN(dt.getTime())) return dt.toISOString().split('T')[0];
+    }
+    return '';
+  }
+
+  function obterNumeroSemanaISO(dataISO){
+    const [ano,mes,dia]=String(dataISO).split('-').map(Number);
+    const data=new Date(Date.UTC(ano,mes-1,dia));
+    const diaSemana=data.getUTCDay()||7;
+    data.setUTCDate(data.getUTCDate()+4-diaSemana);
+    const anoISO=data.getUTCFullYear();
+    const inicioAno=new Date(Date.UTC(anoISO,0,1));
+    const semana=Math.ceil((((data-inicioAno)/86400000)+1)/7);
+    return `${anoISO}-W${String(semana).padStart(2,'0')}`;
+  }
+
+  function obterSemanaAtual(){
+    return obterNumeroSemanaISO(obterHojeLocalISO());
+  }
+
+  function obterIntervaloSemana(semanaISO){
+    const partes=String(semanaISO||'').match(/^(\d{4})-W(\d{2})$/);
+    if(!partes) return null;
+    const ano=Number(partes[1]),semana=Number(partes[2]);
+    const jan4=new Date(Date.UTC(ano,0,4));
+    const diaSemana=jan4.getUTCDay()||7;
+    const segunda=new Date(jan4);
+    segunda.setUTCDate(jan4.getUTCDate()-diaSemana+1+(semana-1)*7);
+    const domingo=new Date(segunda);
+    domingo.setUTCDate(segunda.getUTCDate()+6);
+    const iso=d=>d.toISOString().split('T')[0];
+    return {inicio:iso(segunda),fim:iso(domingo)};
+  }
+
+  function formatarPeriodoSemana(intervalo){
+    if(!intervalo) return '--/--/---- até --/--/----';
+    return `${window.formatarDataBr(intervalo.inicio)} até ${window.formatarDataBr(intervalo.fim)}`;
+  }
+
+  window.abrirTelaOcorrencias=function(){
+    document.getElementById('view-dashboard').style.display='none';
+    document.getElementById('view-ocorrencias').style.display='block';
+    const filtro=document.getElementById('filtro-semana-ocorrencias');
+    if(!filtro.value) filtro.value=obterSemanaAtual();
+    renderizarOcorrenciasSemana();
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+
+  window.voltarParaDashboard=function(){
+    document.getElementById('view-ocorrencias').style.display='none';
+    document.getElementById('view-dashboard').style.display='block';
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+
+  window.renderizarOcorrenciasSemana=function(){
+    const filtro=document.getElementById('filtro-semana-ocorrencias');
+    const listaEl=document.getElementById('lista-ocorrencias-semana');
+    const totalEl=document.getElementById('total-ocorrencias-semana');
+    const periodoEl=document.getElementById('periodo-ocorrencias');
+    if(!filtro||!listaEl||!totalEl||!periodoEl)return;
+
+    if(!filtro.value)filtro.value=obterSemanaAtual();
+    const intervalo=obterIntervaloSemana(filtro.value);
+    periodoEl.textContent=formatarPeriodoSemana(intervalo);
+
+    const ocorrencias=(ocorrenciasGlobais||[]).filter(o=>{
+      if(!o || typeof o!=='object') return false;
+      const data=obterDataOcorrenciaISO(o);
+      return Boolean(data && intervalo && data>=intervalo.inicio && data<=intervalo.fim);
+    });
+
+    totalEl.textContent=String(ocorrencias.length);
+    listaEl.innerHTML='';
+
+    if(!ocorrencias.length){
+      listaEl.innerHTML='<div class="card shadow-sm border-0"><div class="card-body text-center text-muted py-5">Nenhuma ocorrência lançada nesta semana.</div></div>';
+      return;
+    }
+
+    ocorrencias.forEach(o=>{
+      const card=document.createElement('div');
+      card.className='card ocorrencia-card shadow-sm';
+
+      const data=obterDataOcorrenciaISO(o);
+      const motoboyNome=String(o.motoboyNome || o.motoboy_nome || (o.motoboy ? (nomesMotoboys[String(o.motoboy)]?.nome || o.motoboy) : '-'));
+      const vendedor=String(o.vendedor ?? '-');
+      const dav=String(o.dav ?? '-');
+      const cliente=String(o.cliente ?? '-');
+      const endereco=String(o.endereco ?? '-');
+      const motivo=String(o.motivo || o.descricao || o.ocorrencia || o.motivo_nao_entrega || '-');
+
+      card.innerHTML=`
+        <div class="card-body py-3 px-3">
+          <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                <span class="badge bg-custom-primary">⚠️ Ocorrência</span>
+                <span class="text-muted small fw-bold">${escapeHtml(window.formatarDataBr(data))}</span>
+              </div>
+              <div class="row g-2">
+                <div class="col-md-3"><small class="text-muted d-block">Vendedor</small><strong>${escapeHtml(vendedor)}</strong></div>
+                <div class="col-md-2"><small class="text-muted d-block">DAV</small><strong>#${escapeHtml(dav)}</strong></div>
+                <div class="col-md-3"><small class="text-muted d-block">Cliente</small><strong>${escapeHtml(cliente)}</strong></div>
+                <div class="col-md-2"><small class="text-muted d-block">Motoboy</small><strong>${escapeHtml(motoboyNome)}</strong></div>
+              </div>
+              <div class="mt-2"><small class="text-muted d-block">Endereço</small><span>${escapeHtml(endereco)}</span></div>
+              <div class="mt-2 p-2 rounded border border-danger-subtle bg-danger-subtle">
+                <small class="text-danger d-block fw-bold">Motivo</small>
+                <div class="text-dark fw-semibold mt-1">${escapeHtml(motivo)}</div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+
+      listaEl.appendChild(card);
+    });
+  };
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    document.getElementById('filtro-data').value=new Date().toISOString().split('T')[0];
+    document.getElementById('filtro-semana-ocorrencias').value=obterSemanaAtual();
+    popularSelectMotoboys();
+    filtrarETabela();
+    renderizarOcorrenciasSemana();
+  });
+</script>
+</body>
+</html>

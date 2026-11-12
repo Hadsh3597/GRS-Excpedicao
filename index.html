@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GRS Expedição</title>
+  <link rel="icon" type="image/png" href="https://cdn.grs.tec.br/carros/logo%20mini%20tech.png">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=6">
+
+  <script>
+    (function () {
+      if (localStorage.getItem("grs_tema") === "dark") {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+</head>
+
+<body>
+  <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1100">
+    <div id="toastSucesso" class="toast align-items-center text-white bg-success border-0 shadow" role="alert"
+      data-bs-delay="2500">
+      <div class="d-flex">
+        <div class="toast-body fw-bold" id="toastSucessoMensagem">✅ Operação realizada!</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-layout">
+    <aside class="sidebar p-3">
+      <div>
+        <div class="d-flex align-items-center gap-2 mb-4 pb-3 border-bottom">
+          <div class="logo-container">
+            <img src="https://cdn.grs.tec.br/carros/logo%20mini%20tech.png" alt="Logo GRS">
+          </div>
+          <h4 class="m-0 fw-bold text-custom-primary">GRS Expedição</h4>
+        </div>
+
+        <nav class="nav nav-pills flex-column" id="sidebar-nav">
+          <a href="index.html" class="nav-link" id="nav-admin">📦 Controle de entregas</a>
+          <a href="index.html?view=avisos" class="nav-link" id="nav-avisos">🔔 Avisos</a>
+          <a href="index.html?view=ocorrencias" class="nav-link" id="nav-ocorrencias">⚠️ Ocorrências</a>
+          <a href="dashboard.html" class="nav-link" id="nav-dashboard">📊 Dashboard & Indicadores</a>
+
+          <hr class="my-3">
+          <div class="text-muted small fw-bold px-2 mb-2 text-uppercase">🛵 Entregadores</div>
+          <a href="index.html?m=1" class="nav-link d-flex align-items-center gap-2" id="nav-m1"><span
+              class="dot dot-green"></span><span class="motoboy-nome" data-motoboy-id="1">Wellington</span></a>
+          <a href="index.html?m=2" class="nav-link d-flex align-items-center gap-2" id="nav-m2"><span
+              class="dot dot-blue"></span><span class="motoboy-nome" data-motoboy-id="2">Rogerio</span></a>
+          <a href="index.html?m=3" class="nav-link d-flex align-items-center gap-2" id="nav-m3"><span
+              class="dot dot-yellow"></span><span class="motoboy-nome" data-motoboy-id="3">Giovane</span></a>
+          <a href="index.html?m=4" class="nav-link d-flex align-items-center gap-2" id="nav-m4"><span
+              class="dot dot-red"></span><span class="motoboy-nome" data-motoboy-id="4">Djavan</span></a>
+
+          <hr class="my-3">
+          <a href="index.html?view=motos" class="nav-link" id="nav-motos">🏍️ Controle de motos</a>
+          <hr class="my-3">
+          <a href="index.html?view=conferencia" class="nav-link" id="nav-conferencia">📋 Conferência de Notas</a>
+          <a href="index.html?view=davs-abertas" class="nav-link" id="nav-davs-abertas">📂 DAV's abertas</a>
+        </nav>
+      </div>
+
+      <div class="pt-3 border-top">
+        <button class="btn btn-outline-secondary w-100" data-bs-toggle="modal" data-bs-target="#modalConfiguracoes">
+          ⚙️ Configurações
+        </button>
+        <div class="copyright-text">© 2026 GRS LAB. Todos os direitos reservados.</div>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <div id="view-admin">
+        <div class="row g-4">
+          <div class="col-lg-5">
+            <div class="card shadow-sm border-0">
+              <div class="card-header bg-custom-primary text-white fw-bold">Lançar Nova Entrega</div>
+              <div class="card-body bg-white">
+                <form id="form-entrega" onsubmit="salvarEntrega(event)" autocomplete="off">
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label small mb-1">Nº da DAV</label>
+                      <input type="text" id="dav" class="form-control" required placeholder="Ex: 10425">
+                    </div>
+                    <div class="col-6 position-relative">
+                      <label class="form-label small mb-1">Vendedor</label>
+                      <input type="text" id="vendedor" class="form-control" required placeholder="Ex: Carlos"
+                        oninput="capitalizarInput(this); filtrarVendedores(this.value)"
+                        onkeydown="navegarSugestoesVendedor(event)">
+                      <div id="vendedor-autocomplete-list" class="autocomplete-items d-none"></div>
+                    </div>
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Nome do Cliente</label>
+                    <input type="text" id="cliente" class="form-control" required placeholder="Ex: Maria Silva"
+                      oninput="capitalizarInput(this); checarAvisosCliente(this)">
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Endereço Completo</label>
+                    <input type="text" id="endereco" class="form-control" required
+                      placeholder="Rua, Número, Bairro, Cidade" oninput="capitalizarInput(this)"
+                      onchange="identificarMotoboyAutomatico()">
+                    <div id="status-geocoding" class="form-text text-muted" style="font-size:.75rem"></div>
+                  </div>
+
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label small mb-1">Valor (R$)</label>
+                      <input type="number" step="0.01" id="valor" class="form-control" required placeholder="0.00">
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label small mb-1">Pagamento</label>
+                      <select id="pagamento" class="form-select" required>
+                        <option value="Dinheiro">Dinheiro</option>
+                        <option value="Cartão">Cartão</option>
+                        <option value="PIX">PIX</option>
+                        <option value="Marcado">Marcado</option>
+                        <option value="Pago / Faturado">Pago / Faturado</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Observações</label>
+                    <textarea id="observacoes" class="form-control" rows="2" placeholder="Ex: Troco para 50"></textarea>
+                  </div>
+
+                  <div class="mb-3">
+                    <label class="form-label small mb-1">Atribuir Motoboy</label>
+                    <select id="motoboy" class="form-select" required></select>
+                  </div>
+
+                  <button type="submit" class="btn btn-custom-primary w-100 fw-bold">Cadastrar Entrega</button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-lg-7">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+              <h5 class="m-0 fw-bold text-custom-primary">Lista de Entregas</h5>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <button class="btn btn-sm btn-custom-primary fw-bold" onclick="marcarTodasNaRotaComoEntregues()"
+                  title="Marca como Entregue tudo que ainda está Na Rota">✅ Marcar todas como entregue</button>
+                <div class="input-group input-group-sm" style="width:auto">
+                  <span class="input-group-text bg-white text-muted fw-bold">📅 Dia:</span>
+                  <input type="date" id="filtro-data-admin" class="form-control form-control-sm"
+                    onchange="renderizarListas()">
+                </div>
+                <button class="btn btn-sm btn-success" onclick="exportarXLSX()">📊 Exportar XLSX</button>
+              </div>
+            </div>
+            <div id="lista-admin" class="vstack gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-motoboy" class="d-none">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <h5 class="m-0 fw-bold text-custom-primary" id="titulo-motoboy">Entregas do Motoboy</h5>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <div class="input-group input-group-sm" style="width:auto">
+              <span class="input-group-text bg-white text-muted fw-bold">📅 Dia:</span>
+              <input type="date" id="filtro-data-motoboy" class="form-control form-control-sm"
+                onchange="renderizarListas()">
+            </div>
+            <button class="btn btn-sm btn-success" onclick="exportarXLSX()">📊 Exportar XLSX</button>
+          </div>
+        </div>
+        <div id="lista-motoboy" class="vstack gap-2"></div>
+      </div>
+
+      <div id="view-conferencia" class="d-none">
+        <div class="card shadow-sm border-0">
+          <div
+            class="card-header bg-custom-primary text-white d-flex justify-content-between align-items-center py-2 flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+              <h5 class="m-0 fw-bold">📋 Conferência de Notas</h5>
+              <div class="input-group input-group-sm" style="width:auto">
+                <span class="input-group-text bg-white text-dark fw-bold">📅 Dia:</span>
+                <input type="date" id="filtro-data-conferencia" class="form-control form-control-sm"
+                  onchange="renderizarListas()">
+              </div>
+            </div>
+            <span class="badge theme-badge-help fw-normal">Enter: conferir | Ctrl+Z: desfazer | Setas: navegar</span>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0 table-conferencia">
+                <thead class="table-light">
+                  <tr>
+                    <th>Data</th>
+                    <th>DAV</th>
+                    <th>Vendedor</th>
+                    <th>Cliente</th>
+                    <th>Endereço</th>
+                    <th>Valor</th>
+                    <th>Pagamento</th>
+                    <th>Motoboy</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-conferencia"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-avisos" class="d-none">
+        <div class="row g-4">
+          <div class="col-lg-5">
+            <div class="card shadow-sm border-0">
+              <div class="card-header bg-custom-primary text-white fw-bold">🔔 Novo Aviso</div>
+              <div class="card-body bg-white">
+                <form id="form-aviso" onsubmit="salvarAviso(event)" autocomplete="off">
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Nome (palavra-chave)</label>
+                    <input type="text" id="aviso-nome" class="form-control" required placeholder="Ex: Maria"
+                      oninput="capitalizarInput(this)">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label small mb-1">Aviso</label>
+                    <textarea id="aviso-texto" class="form-control" rows="3" required></textarea>
+                  </div>
+                  <button type="submit" class="btn btn-custom-primary w-100 fw-bold">Adicionar Aviso</button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <h5 class="fw-bold text-custom-primary mb-2">Lista de Avisos</h5>
+            <div id="lista-avisos" class="vstack gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-ocorrencias" class="d-none">
+        <div class="row g-4">
+          <div class="col-lg-5">
+            <div class="card shadow-sm border-0">
+              <div class="card-header bg-custom-primary text-white fw-bold">⚠️ Registrar Ocorrência</div>
+              <div class="card-body bg-white">
+                <form id="form-ocorrencia" onsubmit="salvarOcorrencia(event)" autocomplete="off">
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Nome do Vendedor</label>
+                    <input type="text" id="ocorrencia-vendedor" class="form-control" required
+                      placeholder="Ex: Carlos" oninput="capitalizarInput(this)">
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">DAV</label>
+                    <input type="text" id="ocorrencia-dav" class="form-control" required placeholder="Ex: 10425">
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Cliente</label>
+                    <input type="text" id="ocorrencia-cliente" class="form-control" required
+                      placeholder="Ex: Maria Silva" oninput="capitalizarInput(this)">
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Motoboy</label>
+                    <select id="ocorrencia-motoboy" class="form-select" required></select>
+                  </div>
+
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Endereço</label>
+                    <input type="text" id="ocorrencia-endereco" class="form-control" required
+                      placeholder="Rua, Número, Bairro, Cidade" oninput="capitalizarInput(this)">
+                  </div>
+
+                  <div class="mb-3">
+                    <label class="form-label small mb-1">Motivo da Ocorrência</label>
+                    <textarea id="ocorrencia-motivo" class="form-control" rows="4" required
+                      placeholder="Descreva o que aconteceu..."></textarea>
+                  </div>
+
+                  <div class="small text-muted mb-3">
+                    📅 A ocorrência será registrada automaticamente com a data de hoje.
+                  </div>
+
+                  <button type="submit" class="btn btn-custom-primary w-100 fw-bold">Registrar Ocorrência</button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-lg-7">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+              <div>
+                <h5 class="m-0 fw-bold text-custom-primary">Lista de Ocorrências</h5>
+                <div id="resumo-semana-ocorrencias" class="small text-muted"></div>
+              </div>
+
+              <div class="input-group input-group-sm" style="width:auto">
+                <span class="input-group-text bg-white text-muted fw-bold">📅 De:</span>
+                <input type="date" id="filtro-ocorrencias-inicio" class="form-control form-control-sm"
+                  onchange="renderizarListas()">
+                <span class="input-group-text bg-white text-muted fw-bold">Até:</span>
+                <input type="date" id="filtro-ocorrencias-fim" class="form-control form-control-sm"
+                  onchange="renderizarListas()">
+                <button type="button" class="btn btn-outline-secondary btn-sm" title="Limpar filtro"
+                  onclick="limparFiltroOcorrencias()">✕</button>
+              </div>
+            </div>
+
+            <div id="lista-ocorrencias" class="vstack gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-motos" class="d-none">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <div>
+            <h5 class="m-0 fw-bold text-custom-primary">🏍️ Controle de Motos</h5>
+            <div class="text-muted small">Combustível por motoboy e manutenção por placa</div>
+          </div>
+
+          <div class="d-flex gap-2 flex-wrap">
+            <div class="input-group input-group-sm" style="width:auto">
+              <span class="input-group-text bg-white text-muted fw-bold">📅 Mês:</span>
+              <input type="month" id="filtro-mes-motos" class="form-control form-control-sm"
+                onchange="renderizarListas()">
+            </div>
+            <button class="btn btn-success fw-bold" onclick="abrirModalAbastecimento()">⛽ Lançar abastecimento</button>
+            <button class="btn btn-warning fw-bold" onclick="abrirModalManutencao()">🔧 Lançar manutenção</button>
+          </div>
+        </div>
+        <div class="row g-3" id="lista-motos"></div>
+      </div>
+
+      <div id="view-davs-abertas" class="d-none">
+        <div class="row g-4">
+          <div class="col-lg-5">
+            <div class="card shadow-sm border-0">
+              <div class="card-header bg-custom-primary text-white fw-bold">📂 Adicionar DAV aberta</div>
+              <div class="card-body bg-white">
+                <form id="form-dav-aberta" onsubmit="salvarDavAberta(event)" autocomplete="off">
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Comanda</label>
+                    <input type="text" id="dav-aberta-comanda" class="form-control" required placeholder="Ex: 10425">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Cliente</label>
+                    <input type="text" id="dav-aberta-cliente" class="form-control" required placeholder="Ex: Maria Silva" oninput="capitalizarInput(this)">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small mb-1">Vendedor</label>
+                    <input type="text" id="dav-aberta-vendedor" class="form-control" required placeholder="Ex: Carlos" oninput="capitalizarInput(this)">
+                  </div>
+                  <div class="row g-2 mb-3">
+                    <div class="col-sm-6">
+                      <label class="form-label small mb-1">Data</label>
+                      <input type="date" id="dav-aberta-data" class="form-control" required>
+                    </div>
+                    <div class="col-sm-6">
+                      <label class="form-label small mb-1">Valor</label>
+                      <input type="number" id="dav-aberta-valor" class="form-control" required min="0" step="0.01" placeholder="0,00">
+                    </div>
+                  </div>
+                  <button type="submit" class="btn btn-custom-primary w-100 fw-bold">Adicionar DAV aberta</button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+              <div>
+                <h5 class="m-0 fw-bold text-custom-primary">DAV's abertas</h5>
+                <div id="resumo-davs-abertas" class="small text-muted"></div>
+              </div>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <div class="input-group input-group-sm" style="width:auto">
+                  <span class="input-group-text bg-white text-muted fw-bold">👤 Vendedor:</span>
+                  <select id="filtro-vendedor-dav" class="form-select form-select-sm"
+                    style="width:auto" onchange="renderizarDavsAbertas()"></select>
+                </div>
+                <div class="input-group input-group-sm" style="width:auto">
+                  <span class="input-group-text bg-white text-muted fw-bold">🏷️ Situação:</span>
+                  <select id="filtro-situacao-dav" class="form-select form-select-sm"
+                    style="width:auto" onchange="renderizarDavsAbertas()"></select>
+                </div>
+                <button class="btn btn-sm btn-success" onclick="exportarDavsAbertasXLSX()">📊 Exportar XLSX</button>
+              </div>
+            </div>
+            <div id="lista-davs-abertas" class="row g-3"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal fade" id="modalAvisoAlerta" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-warning">
+          <h5 class="modal-title fw-bold">⚠️ Aviso encontrado para este cliente!</h5>
+        </div>
+        <div class="modal-body">
+          <p class="mb-1"><span class="text-muted small">Nome cadastrado:</span><br><span class="fw-bold fs-5"
+              id="avisoAlertaNome"></span></p>
+          <hr class="my-2">
+          <p class="mb-1 text-muted small">Aviso:</p>
+          <p class="fw-bold mb-0" id="avisoAlertaTexto"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-custom-primary w-100 fw-bold" id="btnConfirmarAvisoAlerta">✅ Confirmar e
+            Fechar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalConfiguracoes" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable config-modal">
+      <div class="modal-content">
+        <div class="modal-header config-modal-header text-white">
+          <div class="d-flex align-items-center gap-3">
+            <div class="config-header-icon">⚙️</div>
+            <div>
+              <h5 class="modal-title fw-bold mb-0">Configurações</h5>
+              <div class="config-header-subtitle">Personalize o funcionamento do sistema</div>
+            </div>
+          </div>
+          <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body config-modal-body">
+          <section class="config-section">
+            <div class="config-section-heading"><span class="config-section-icon">🛵</span><div><h6>Entregadores</h6><p>Atualize os nomes exibidos no sistema.</p></div></div>
+            <div class="config-section-content">
+              <p class="config-helper">As posições internas continuam as mesmas, então o histórico das entregas permanece preservado.</p>
+              <div id="lista-motoboys-config" class="vstack gap-2"></div>
+              <div class="d-flex justify-content-end mt-3"><button class="btn btn-sm btn-custom-primary fw-bold px-3" onclick="salvarNomesMotoboys()">💾 Salvar nomes</button></div>
+            </div>
+          </section>
+
+          <section class="config-section">
+            <div class="config-section-heading"><span class="config-section-icon">📥</span><div><h6>Importar entregas</h6><p>Adicione entregas a partir de uma planilha Excel.</p></div></div>
+            <div class="config-section-content">
+              <input type="file" id="arquivo-excel-import" class="form-control form-control-sm mb-2" accept=".xlsx,.xls">
+              <button class="btn btn-sm btn-success w-100 fw-bold" onclick="processarImportacaoExcel()">🚀 Processar importação</button>
+              <div id="status-importacao" class="form-text mt-2 fw-bold"></div>
+            </div>
+          </section>
+
+          <section class="config-section">
+            <div class="config-section-heading"><span class="config-section-icon">🎨</span><div><h6>Aparência</h6><p>Defina como o sistema será exibido.</p></div></div>
+            <div class="config-section-content">
+              <div class="theme-setting">
+                <div><div class="theme-setting-title">🌙 Tema escuro</div><div class="theme-setting-description">Salvo neste navegador.</div></div>
+                <label class="theme-switch"><input type="checkbox" id="themeToggle"><span class="theme-slider"></span></label>
+              </div>
+            </div>
+          </section>
+
+          <section class="config-section mb-0">
+            <div class="config-section-heading"><span class="config-section-icon">👥</span><div><h6>Vendedores</h6><p>Gerencie os nomes disponíveis nos lançamentos.</p></div></div>
+            <div class="config-section-content">
+              <div class="input-group mb-3">
+                <input type="text" id="novo-vendedor-input" class="form-control" placeholder="Nome do vendedor" oninput="capitalizarInput(this)">
+                <button class="btn btn-custom-primary" onclick="adicionarVendedor()">Adicionar</button>
+              </div>
+              <ul class="list-group" id="lista-vendedores-config"></ul>
+            </div>
+          </section>
+        </div>
+        <div class="modal-footer config-modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalEditarMoto" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-custom-primary text-white">
+          <h5 class="modal-title fw-bold">Editar vínculo da moto</h5>
+          <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="moto-editar-index">
+          <div class="alert alert-info py-2 small">Combustível acompanha o motoboy. Manutenção acompanha a placa.</div>
+          <div class="mb-3">
+            <label class="form-label">Motoboy vinculado</label>
+            <select id="moto-editar-motoboy" class="form-select"></select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Placa</label>
+            <input type="text" id="moto-editar-placa" class="form-control text-uppercase" maxlength="8"
+              placeholder="ABC1D23">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-custom-primary fw-bold" onclick="salvarEdicaoMoto()">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalAbastecimento" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title fw-bold">⛽ Lançar abastecimento</h5>
+          <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="abastecimento-card-index" value="-1">
+          <div class="alert alert-success py-2 small">O abastecimento será vinculado ao motoboy escolhido.</div>
+          <div class="mb-3">
+            <label class="form-label">Motoboy</label>
+            <select id="abastecimento-motoboy" class="form-select"></select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Data</label>
+            <input type="date" id="abastecimento-data" class="form-control">
+          </div>
+          <div class="row g-2">
+            <div class="col-6 mb-3">
+              <label class="form-label">Valor total</label>
+              <input type="number" step="0.01" min="0" id="abastecimento-valor" class="form-control">
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label">Litros</label>
+              <input type="number" step="0.01" min="0" id="abastecimento-litros" class="form-control">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">KM atual</label>
+            <input type="number" min="0" id="abastecimento-km" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Observação</label>
+            <input type="text" id="abastecimento-observacao" class="form-control" placeholder="Opcional">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-success fw-bold" onclick="salvarAbastecimento()">Salvar abastecimento</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalManutencao" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-warning">
+          <h5 class="modal-title fw-bold">🔧 Lançar manutenção</h5>
+          <button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="manutencao-card-index" value="-1">
+          <div class="alert alert-warning py-2 small">A manutenção será vinculada à placa informada.</div>
+          <div class="mb-3">
+            <label class="form-label">Placa</label>
+            <input type="text" id="manutencao-placa" class="form-control text-uppercase" maxlength="8">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Data</label>
+            <input type="date" id="manutencao-data" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Valor</label>
+            <input type="number" step="0.01" min="0" id="manutencao-valor" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Descrição</label>
+            <input type="text" id="manutencao-descricao" class="form-control" placeholder="Ex: Troca de óleo">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">KM atual</label>
+            <input type="number" min="0" id="manutencao-km" class="form-control">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Observação</label>
+            <input type="text" id="manutencao-observacao" class="form-control" placeholder="Opcional">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-warning fw-bold" onclick="salvarManutencao()">Salvar manutenção</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalHistoricoCombustivel" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title fw-bold" id="titulo-historico-combustivel">Histórico de abastecimentos</h5>
+          <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="lista-historico-combustivel" class="vstack gap-2"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalHistoricoManutencao" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-warning">
+          <h5 class="modal-title fw-bold" id="titulo-historico-manutencao">Histórico de manutenções</h5>
+          <button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="lista-historico-manutencao" class="vstack gap-2"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  <script src="app.js?v=22"></script>
+</body>
+
+</html>
