@@ -1043,39 +1043,22 @@ async function identificarMotoboyAutomatico() {
   status.textContent="🔍 Identificando rota automaticamente...";
   status.className="form-text text-muted";
 
-  const limpo=endereco
-    .replace(/^r\.?\s+/i,"Rua ")
-    .replace(/^av\.?\s+/i,"Avenida ")
-    .replace(/^al\.\s+/i,"Alameda ")
-    .replace(/^pç\.\s+/i,"Praça ");
-
-  const consultas=[
-    `${limpo}, Mogi Guaçu, SP, Brasil`,
-    `${limpo}, Mogi Mirim, SP, Brasil`,
-    `${endereco}, Mogi Guaçu, SP, Brasil`,
-    `${endereco}, SP, Brasil`
-  ];
-
   try {
-    let resultado=null;
-    for(const consulta of consultas){
-      const resp=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(consulta)}&limit=1`);
-      if(!resp.ok)continue;
-      const dados=await resp.json();
-      if(Array.isArray(dados)&&dados.length){resultado=dados[0];break;}
-    }
+    const resultado=await geocodificarEnderecoMapa(endereco);
 
     if(!resultado){
-      status.textContent="❌ Endereço não localizado no mapa.";
-      status.className="form-text text-danger";
+      if(ultimoErroGeocode){
+        status.textContent=`⚠️ Serviço de mapas indisponível (${ultimoErroGeocode}). Aguarde um instante e tente de novo.`;
+        status.className="form-text text-warning";
+      }else{
+        status.textContent="❌ Endereço não localizado no mapa.";
+        status.className="form-text text-danger";
+      }
       return;
     }
 
-    const ponto=[Number(resultado.lon),Number(resultado.lat)];
-    let zona=null;
-    for(const [nome,poligono] of Object.entries(ZONAS)){
-      if(pontoDentroDoPoligono(ponto,poligono)){zona=nome;break;}
-    }
+    const ponto=[resultado.lon,resultado.lat];
+    const zona=descobrirZona(ponto);
 
     if(zona&&MAPA_MOTOBOYS_IDS[zona]){
       elemento("motoboy").value=MAPA_MOTOBOYS_IDS[zona];
@@ -1340,6 +1323,385 @@ async function excluirLancamentoMoto(key) {
   exibirToastConfirmacao("✅ Lançamento excluído!");
 }
 
+/* ZONAS (KML) + MAPA DO ENDEREÇO */
+const ZONAS_STORAGE_KEY = "grs_zonas_kml";
+const ZONA_CORES = { DJAVAN: "#6f42c1", ROGERIO: "#198754", GIOVANE: "#fd7e14", WELLINGTON: "#0d6efd" };
+const KML_TAMANHO_MAX = 5 * 1024 * 1024;
+
+const normalizarNomeZona = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
+const escaparHTMLZona = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Formato interno: { CHAVE: [ anel, anel, ... ] }, cada anel = [[lon,lat], ...]
+function zonasPadrao() {
+  return Object.fromEntries(Object.entries(ZONAS).map(([nome, anel]) => [nome, [anel]]));
+}
+
+function validarZonas(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const limpo = {};
+  for (const [chave, aneis] of Object.entries(obj)) {
+    if (!MAPA_MOTOBOYS_IDS[chave] || !Array.isArray(aneis)) continue;
+    const ok = aneis.filter(a => Array.isArray(a) && a.length >= 3 &&
+      a.every(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])));
+    if (ok.length) limpo[chave] = ok;
+  }
+  return Object.keys(limpo).length ? limpo : null;
+}
+
+function lerZonasSalvas() {
+  try {
+    const d = JSON.parse(localStorage.getItem(ZONAS_STORAGE_KEY) || "null");
+    const zonas = validarZonas(d?.zonas);
+    return zonas ? { ...d, zonas } : null;
+  } catch (_) { return null; }
+}
+
+function zonasAtivas() {
+  return lerZonasSalvas()?.zonas || zonasPadrao();
+}
+
+// ponto = [lon, lat] -> chave da zona (ex.: "DJAVAN") ou null
+function descobrirZona(ponto) {
+  for (const [nome, aneis] of Object.entries(zonasAtivas())) {
+    if (aneis.some(anel => pontoDentroDoPoligono(ponto, anel))) return nome;
+  }
+  return null;
+}
+
+function resolverNomeZona(nome) {
+  const n = normalizarNomeZona(nome);
+  if (!n) return null;
+  for (const [chave, id] of Object.entries(MAPA_MOTOBOYS_IDS)) {
+    if (normalizarNomeZona(chave) === n || normalizarNomeZona(nomeMotoboy(id)) === n) return chave;
+  }
+  return null;
+}
+
+function lerCoordenadasKML(texto) {
+  const pontos = String(texto || "").trim().split(/\s+/).filter(Boolean).map(t => t.split(",").map(Number));
+  if (pontos.length < 3) return null;
+  for (const p of pontos) {
+    if (p.length < 2 || !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || Math.abs(p[0]) > 180 || Math.abs(p[1]) > 90) return null;
+  }
+  return pontos.map(p => [p[0], p[1]]); // descarta a altitude
+}
+
+function lerKML(texto) {
+  const doc = new DOMParser().parseFromString(texto, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error("O arquivo não é um KML válido (XML com erro).");
+  const zonas = {};
+  const ignorados = new Set();
+  let poligonos = 0;
+  for (const pm of doc.getElementsByTagName("Placemark")) {
+    const poligonosPm = pm.getElementsByTagName("Polygon");
+    if (!poligonosPm.length) continue; // pinos e linhas são ignorados
+    const nome = ([...pm.children].find(c => c.localName === "name")?.textContent || "").trim();
+    const chave = resolverNomeZona(nome);
+    if (!chave) { ignorados.add(nome || "(sem nome)"); continue; }
+    for (const pg of poligonosPm) {
+      const bruto = pg.getElementsByTagName("outerBoundaryIs")[0]?.getElementsByTagName("coordinates")[0]?.textContent;
+      const anel = lerCoordenadasKML(bruto);
+      if (!anel) continue;
+      (zonas[chave] ||= []).push(anel);
+      poligonos++;
+    }
+  }
+  if (!poligonos) {
+    throw new Error("Nenhum polígono com nome válido foi encontrado. Confira as regras abaixo (o nome de cada polígono precisa ser o do motoboy).");
+  }
+  return { zonas, ignorados: [...ignorados], poligonos };
+}
+
+function definirStatusKML(html, tipo) {
+  const el = elemento("status-kml-zonas");
+  if (!el) return;
+  el.className = `form-text mt-2 fw-bold ${tipo === "erro" ? "text-danger" : tipo === "ok" ? "text-success" : "text-warning"}`;
+  el.innerHTML = html;
+}
+
+async function importarKMLZonas() {
+  const input = elemento("arquivo-kml-zonas");
+  const file = input?.files?.[0];
+  if (!file) return definirStatusKML("❌ Selecione um arquivo .kml primeiro.", "erro");
+  if (/\.kmz$/i.test(file.name)) return definirStatusKML("❌ KMZ não é aceito. Exporte como <b>.KML</b> (veja as regras abaixo).", "erro");
+  if (!/\.kml$/i.test(file.name)) return definirStatusKML("❌ O arquivo precisa ter a extensão .kml", "erro");
+  if (file.size > KML_TAMANHO_MAX) return definirStatusKML("❌ Arquivo muito grande (máx. 5 MB).", "erro");
+
+  try {
+    const r = lerKML(await file.text());
+    const zonas = validarZonas(r.zonas);
+    if (!zonas) throw new Error("O KML não gerou nenhuma zona válida.");
+    localStorage.setItem(ZONAS_STORAGE_KEY, JSON.stringify({ nomeArquivo: file.name, importadoEm: new Date().toISOString(), zonas }));
+    input.value = "";
+    renderizarStatusZonas();
+
+    const faltando = Object.keys(MAPA_MOTOBOYS_IDS).filter(c => !zonas[c]).map(c => nomeMotoboy(MAPA_MOTOBOYS_IDS[c]));
+    let msg = `✅ ${r.poligonos} polígono(s) importado(s) em ${Object.keys(zonas).length} zona(s).`;
+    let tipo = "ok";
+    if (faltando.length) { msg += `<br>⚠️ Sem zona no arquivo: ${faltando.map(escaparHTMLZona).join(", ")} (não serão atribuídos automaticamente).`; tipo = "aviso"; }
+    if (r.ignorados.length) { msg += `<br>⚠️ Ignorados (nome não reconhecido): ${r.ignorados.map(escaparHTMLZona).join(", ")}.`; tipo = "aviso"; }
+    definirStatusKML(msg, tipo);
+    exibirToastConfirmacao("✅ Zonas atualizadas!");
+  } catch (e) {
+    definirStatusKML(`❌ ${escaparHTMLZona(e.message || "Não foi possível ler o arquivo.")} As zonas atuais foram mantidas.`, "erro");
+  }
+}
+
+function restaurarZonasPadrao() {
+  if (!lerZonasSalvas()) return definirStatusKML("ℹ️ Já está usando as zonas originais do sistema.", "ok");
+  if (!confirm("Voltar para as zonas originais do sistema? O KML importado neste navegador será removido.")) return;
+  localStorage.removeItem(ZONAS_STORAGE_KEY);
+  renderizarStatusZonas();
+  definirStatusKML("✅ Zonas originais restauradas.", "ok");
+}
+
+function renderizarStatusZonas() {
+  const el = elemento("info-zonas-ativas");
+  if (!el) return;
+  const salvo = lerZonasSalvas();
+  const zonas = salvo?.zonas || zonasPadrao();
+  const origem = salvo
+    ? `📄 <b>${escaparHTMLZona(salvo.nomeArquivo || "KML importado")}</b> <span class="text-muted">(importado em ${new Date(salvo.importadoEm).toLocaleString("pt-BR")})</span>`
+    : "🏠 <b>Zonas originais do sistema</b>";
+  const linhas = Object.keys(MAPA_MOTOBOYS_IDS).map(chave => {
+    const aneis = zonas[chave];
+    const nome = escaparHTMLZona(nomeMotoboy(MAPA_MOTOBOYS_IDS[chave]));
+    return `<div class="d-flex align-items-center gap-2 small">
+      <span class="dot" style="background:${ZONA_CORES[chave] || "#888"}"></span>
+      <span class="fw-bold">${nome}</span>
+      <span class="text-muted ms-auto">${aneis ? `${aneis.length} área(s)` : "⚠️ sem zona"}</span>
+    </div>`;
+  }).join("");
+  el.innerHTML = `<div class="mb-2 small">${origem}</div><div class="vstack gap-1">${linhas}</div>`;
+}
+
+function inicializarConfigZonas() {
+  renderizarStatusZonas();
+  inicializarFundoMapa();
+  elemento("modalConfiguracoes")?.addEventListener("show.bs.modal", renderizarStatusZonas);
+}
+
+// Geocodificação única (rota automática + mapa): provedores em cadeia, cache e sem buscas duplicadas
+const GEO_PROVEDORES = [
+  {
+    nome: "Photon", intervalo: 300,
+    url: q => `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=1&lat=-22.37&lon=-46.94`,
+    extrair: d => { const c = d?.features?.[0]?.geometry?.coordinates; return c ? { lat: Number(c[1]), lon: Number(c[0]) } : null; }
+  },
+  {
+    nome: "Nominatim", intervalo: 1100,
+    url: q => `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`,
+    extrair: d => Array.isArray(d) && d.length ? { lat: Number(d[0].lat), lon: Number(d[0].lon) } : null
+  }
+];
+const cacheGeocode = new Map();
+const geocodeEmAndamento = new Map();
+const geoProvedoresFora = new Set();
+const geoUltimaRequisicao = {};
+let ultimoErroGeocode = "";
+
+async function consultarProvedorGeo(p, consulta) {
+  const espera = p.intervalo - (Date.now() - (geoUltimaRequisicao[p.nome] || 0));
+  if (espera > 0) await new Promise(r => setTimeout(r, espera));
+  geoUltimaRequisicao[p.nome] = Date.now();
+  const resp = await fetch(p.url(consulta));
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const ponto = p.extrair(await resp.json());
+  return ponto && Number.isFinite(ponto.lat) && Number.isFinite(ponto.lon) ? ponto : null;
+}
+
+async function buscarCoordenadasEndereco(endereco) {
+  const limpo = endereco
+    .replace(/^r\.?\s+/i, "Rua ")
+    .replace(/^av\.?\s+/i, "Avenida ")
+    .replace(/^al\.\s+/i, "Alameda ")
+    .replace(/^pç\.\s+/i, "Praça ");
+  const consultas = [
+    `${limpo}, Mogi Guaçu, SP, Brasil`,
+    `${limpo}, Mogi Mirim, SP, Brasil`,
+    `${endereco}, Mogi Guaçu, SP, Brasil`,
+    `${endereco}, SP, Brasil`
+  ];
+  for (const consulta of consultas) {
+    for (const p of GEO_PROVEDORES) {
+      if (geoProvedoresFora.has(p.nome)) continue;
+      try {
+        const r = await consultarProvedorGeo(p, consulta);
+        if (r) return r;
+      } catch (e) {
+        // falha de rede/CORS/bloqueio: não insiste neste provedor até a próxima busca
+        geoProvedoresFora.add(p.nome);
+        ultimoErroGeocode = `${p.nome}: ${e.message === "Failed to fetch" ? "bloqueado ou sem conexão" : e.message}`;
+        console.warn("Geocodificação falhou:", p.nome, e);
+      }
+    }
+  }
+  return null;
+}
+
+async function geocodificarEnderecoMapa(endereco) {
+  const chave = endereco.trim().toLowerCase();
+  if (cacheGeocode.has(chave)) return cacheGeocode.get(chave);
+  if (geocodeEmAndamento.has(chave)) return geocodeEmAndamento.get(chave);
+  ultimoErroGeocode = "";
+  if (geoProvedoresFora.size >= GEO_PROVEDORES.length) geoProvedoresFora.clear();
+  const promessa = buscarCoordenadasEndereco(endereco.trim()).then(r => {
+    if (r) cacheGeocode.set(chave, r);
+    return r;
+  }).finally(() => geocodeEmAndamento.delete(chave));
+  geocodeEmAndamento.set(chave, promessa);
+  return promessa;
+}
+
+/* Fundo do mapa (provedor configurável) */
+const TILES_PROVEDOR_KEY = "grs_mapa_provedor";
+const TILES_CHAVE_KEY = "grs_mapa_chave";
+
+function obterConfigTiles() {
+  let provedor = "esri", chave = "";
+  try {
+    provedor = localStorage.getItem(TILES_PROVEDOR_KEY) || "esri";
+    chave = (localStorage.getItem(TILES_CHAVE_KEY) || "").trim();
+  } catch (_) { /* usa o padrão */ }
+  if (provedor !== "esri" && !chave) provedor = "esri"; // sem chave -> volta pro padrão
+  return { provedor, chave };
+}
+
+function montarTiles(escuro) {
+  const { provedor, chave } = obterConfigTiles();
+  if (provedor === "maptiler") {
+    return { url: `https://api.maptiler.com/maps/${escuro ? "streets-v2-dark" : "streets-v2"}/256/{z}/{x}/{y}.png?key=${encodeURIComponent(chave)}`,
+      opcoes: { maxZoom: 19, attribution: "&copy; MapTiler &copy; OpenStreetMap contributors" }, inverter: false };
+  }
+  if (provedor === "geoapify") {
+    return { url: `https://maps.geoapify.com/v1/tile/${escuro ? "dark-matter" : "osm-bright"}/{z}/{x}/{y}.png?apiKey=${encodeURIComponent(chave)}`,
+      opcoes: { maxZoom: 19, attribution: "Powered by Geoapify &copy; OpenMapTiles &copy; OpenStreetMap contributors" }, inverter: false };
+  }
+  // Esri: sem chave e sem versão escura (no tema escuro o mapa é invertido por filtro)
+  return { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    opcoes: { maxZoom: 19, attribution: "Tiles &copy; Esri" }, inverter: escuro };
+}
+
+function salvarFundoMapa() {
+  const prov = elemento("config-mapa-provedor")?.value || "esri";
+  const chave = (elemento("config-mapa-chave")?.value || "").trim();
+  const st = elemento("status-fundo-mapa");
+  if (st) st.className = "form-text mt-2 fw-bold";
+  if (prov !== "esri" && !chave) {
+    if (st) { st.classList.add("text-danger"); st.textContent = "❌ Esse provedor precisa de uma chave. Cole a chave ou escolha o Esri."; }
+    return;
+  }
+  localStorage.setItem(TILES_PROVEDOR_KEY, prov);
+  localStorage.setItem(TILES_CHAVE_KEY, prov === "esri" ? "" : chave);
+  camadaTilesMapa?.remove();
+  camadaTilesMapa = null; // força recriar com o novo provedor
+  if (st) { st.classList.add("text-success"); st.textContent = "✅ Fundo do mapa salvo!"; }
+}
+
+function inicializarFundoMapa() {
+  const { provedor, chave } = obterConfigTiles();
+  const sel = elemento("config-mapa-provedor"), inp = elemento("config-mapa-chave");
+  if (sel) sel.value = provedor;
+  if (inp) inp.value = chave;
+}
+
+/* Modal do mapa (Leaflet) */
+let mapaLeaflet = null, camadaTilesMapa = null, temaTilesMapa = null, camadaZonasMapa = null, marcadorMapa = null, pontoMapaAtual = null;
+
+function iconePinMapa() {
+  const svg = `<svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.2 0 0 7 0 15.7 0 27 16 42 16 42s16-15 16-26.300C32 7 24.800 0 16 0z" fill="#dc3545" stroke="#fff" stroke-width="2"/><circle cx="16" cy="15.500" r="6" fill="#fff"/></svg>`;
+  return L.divIcon({ className: "pin-mapa", html: svg, iconSize: [32, 42], iconAnchor: [16, 42] });
+}
+
+function desenharMapaEndereco() {
+  if (!pontoMapaAtual || !window.L) return;
+  const { lat, lon, zona } = pontoMapaAtual;
+  if (!mapaLeaflet) {
+    mapaLeaflet = L.map("mapa-leaflet");
+  }
+  const escuro = document.documentElement.getAttribute("data-theme") === "dark";
+  if (!camadaTilesMapa || temaTilesMapa !== escuro) {
+    camadaTilesMapa?.remove();
+    const t = montarTiles(escuro);
+    camadaTilesMapa = L.tileLayer(t.url, t.opcoes).addTo(mapaLeaflet);
+    const cont = camadaTilesMapa.getContainer();
+    if (cont) cont.style.filter = t.inverter ? "invert(1) hue-rotate(180deg) brightness(.92) contrast(.9)" : "";
+    let avisou = false;
+    camadaTilesMapa.on("tileerror", () => {
+      if (avisou) return;
+      avisou = true;
+      exibirToastConfirmacao("⚠️ O fundo do mapa não carregou. Confira o provedor/chave em Configurações → Zonas.");
+    });
+    temaTilesMapa = escuro;
+  }
+  mapaLeaflet.invalidateSize();
+  camadaZonasMapa?.remove();
+  camadaZonasMapa = L.featureGroup().addTo(mapaLeaflet);
+  for (const [chave, aneis] of Object.entries(zonasAtivas())) {
+    const cor = ZONA_CORES[chave] || "#888";
+    const destaque = chave === zona;
+    for (const anel of aneis) {
+      L.polygon(anel.map(([x, y]) => [y, x]), { color: cor, weight: destaque ? 3 : 2, fillColor: cor, fillOpacity: destaque ? 0.3 : 0.12 })
+        .bindTooltip(nomeMotoboy(MAPA_MOTOBOYS_IDS[chave]), { sticky: true })
+        .addTo(camadaZonasMapa);
+    }
+  }
+  marcadorMapa?.remove();
+  marcadorMapa = L.marker([lat, lon], { icon: iconePinMapa() }).addTo(mapaLeaflet);
+  mapaLeaflet.setView([lat, lon], 17);
+}
+
+function centralizarMapaEndereco() {
+  if (mapaLeaflet && pontoMapaAtual) mapaLeaflet.setView([pontoMapaAtual.lat, pontoMapaAtual.lon], 17);
+}
+
+function verTodasZonasMapa() {
+  if (!mapaLeaflet || !camadaZonasMapa) return;
+  const b = camadaZonasMapa.getBounds();
+  if (b.isValid()) mapaLeaflet.fitBounds(b, { padding: [20, 20] });
+}
+
+function mostrarModalMapa(endereco, ponto) {
+  const zona = descobrirZona([ponto.lon, ponto.lat]);
+  pontoMapaAtual = { ...ponto, zona };
+  elemento("mapa-endereco-texto").textContent = endereco;
+  const info = elemento("mapa-zona-info");
+  if (zona) {
+    info.className = "badge text-bg-success fs-6";
+    info.textContent = `📍 Zona de ${nomeMotoboy(MAPA_MOTOBOYS_IDS[zona])}`;
+  } else {
+    info.className = "badge text-bg-warning fs-6";
+    info.textContent = "⚠️ Fora das zonas cadastradas";
+  }
+  elemento("mapa-link-google").href = `https://www.google.com/maps/search/?api=1&query=${ponto.lat},${ponto.lon}`;
+  const el = elemento("modalMapaEndereco");
+  el.addEventListener("shown.bs.modal", desenharMapaEndereco, { once: true });
+  bootstrap.Modal.getOrCreateInstance(el).show();
+}
+
+async function buscarEnderecoNoMapa(idInput = "endereco", btn = null) {
+  const campo = elemento(idInput);
+  const endereco = (campo?.value || "").trim();
+  if (!endereco) {
+    exibirToastConfirmacao("⚠️ Digite o endereço antes de buscar no mapa.");
+    campo?.focus();
+    return;
+  }
+  if (!window.L) {
+    exibirToastConfirmacao("❌ A biblioteca do mapa não carregou. Verifique a internet e recarregue a página.");
+    return;
+  }
+  const textoOriginal = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+  try {
+    const ponto = await geocodificarEnderecoMapa(endereco);
+    if (!ponto) { exibirToastConfirmacao("❌ Endereço não localizado no mapa."); return; }
+    mostrarModalMapa(endereco, ponto);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+}
+
 /* TEMA */
 function aplicarTemaEscuro(ativo) {
   document.documentElement.toggleAttribute("data-theme",ativo);
@@ -1458,6 +1820,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   preencherFiltroSituacaoDav();
   inicializarTema();
+  inicializarConfigZonas();
   carregarMotosLocalmente();
   atualizarVendedoresUI();
   renderizarListaMotoboysConfig();
@@ -1477,5 +1840,6 @@ Object.assign(window,{
   editarMoto,salvarEdicaoMoto,abrirModalAbastecimento,salvarAbastecimento,
   abrirModalManutencao,salvarManutencao,abrirHistoricoCombustivel,
   abrirHistoricoManutencao,excluirLancamentoMoto,exibirToastConfirmacao,
-  salvarNomesMotoboys
+  salvarNomesMotoboys,buscarEnderecoNoMapa,importarKMLZonas,restaurarZonasPadrao,
+  centralizarMapaEndereco,verTodasZonasMapa,salvarFundoMapa
 });

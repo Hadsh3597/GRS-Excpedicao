@@ -4,10 +4,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>GRS Expedição</title>
   <link rel="icon" type="image/png" href="https://cdn.grs.tec.br/carros/logo%20mini%20tech.png">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=6">
+  <link href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=8">
 
   <script>
     (function () {
@@ -102,9 +104,13 @@
 
                   <div class="mb-2">
                     <label class="form-label small mb-1">Endereço Completo</label>
-                    <input type="text" id="endereco" class="form-control" required
-                      placeholder="Rua, Número, Bairro, Cidade" oninput="capitalizarInput(this)"
-                      onchange="identificarMotoboyAutomatico()">
+                    <div class="input-group">
+                      <input type="text" id="endereco" class="form-control" required
+                        placeholder="Rua, Número, Bairro, Cidade" oninput="capitalizarInput(this)"
+                        onchange="identificarMotoboyAutomatico()">
+                      <button type="button" class="btn btn-outline-secondary btn-buscar-mapa" id="btn-buscar-mapa" tabindex="-1"
+                        onclick="buscarEnderecoNoMapa('endereco', this)" title="Buscar este endereço no mapa" aria-label="Buscar endereço no mapa">🗺️</button>
+                    </div>
                     <div id="status-geocoding" class="form-text text-muted" style="font-size:.75rem"></div>
                   </div>
 
@@ -432,6 +438,14 @@
           <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body config-modal-body">
+          <ul class="nav nav-pills config-tabs flex-nowrap mb-3" id="config-tabs" role="tablist">
+            <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#cfg-equipe" type="button" role="tab">👥 Equipe</button></li>
+            <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#cfg-zonas" type="button" role="tab">🗺️ Zonas</button></li>
+            <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#cfg-dados" type="button" role="tab">📥 Dados</button></li>
+            <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#cfg-aparencia" type="button" role="tab">🎨 Aparência</button></li>
+          </ul>
+          <div class="tab-content">
+            <div class="tab-pane fade show active" id="cfg-equipe" role="tabpanel">
           <section class="config-section">
             <div class="config-section-heading"><span class="config-section-icon">🛵</span><div><h6>Entregadores</h6><p>Atualize os nomes exibidos no sistema.</p></div></div>
             <div class="config-section-content">
@@ -442,25 +456,6 @@
           </section>
 
           <section class="config-section">
-            <div class="config-section-heading"><span class="config-section-icon">📥</span><div><h6>Importar entregas</h6><p>Adicione entregas a partir de uma planilha Excel.</p></div></div>
-            <div class="config-section-content">
-              <input type="file" id="arquivo-excel-import" class="form-control form-control-sm mb-2" accept=".xlsx,.xls">
-              <button class="btn btn-sm btn-success w-100 fw-bold" onclick="processarImportacaoExcel()">🚀 Processar importação</button>
-              <div id="status-importacao" class="form-text mt-2 fw-bold"></div>
-            </div>
-          </section>
-
-          <section class="config-section">
-            <div class="config-section-heading"><span class="config-section-icon">🎨</span><div><h6>Aparência</h6><p>Defina como o sistema será exibido.</p></div></div>
-            <div class="config-section-content">
-              <div class="theme-setting">
-                <div><div class="theme-setting-title">🌙 Tema escuro</div><div class="theme-setting-description">Salvo neste navegador.</div></div>
-                <label class="theme-switch"><input type="checkbox" id="themeToggle"><span class="theme-slider"></span></label>
-              </div>
-            </div>
-          </section>
-
-          <section class="config-section mb-0">
             <div class="config-section-heading"><span class="config-section-icon">👥</span><div><h6>Vendedores</h6><p>Gerencie os nomes disponíveis nos lançamentos.</p></div></div>
             <div class="config-section-content">
               <div class="input-group mb-3">
@@ -470,8 +465,105 @@
               <ul class="list-group" id="lista-vendedores-config"></ul>
             </div>
           </section>
+            </div>
+            <div class="tab-pane fade" id="cfg-zonas" role="tabpanel">
+          <section class="config-section">
+            <div class="config-section-heading"><span class="config-section-icon">🗺️</span><div><h6>Zonas de entrega (KML)</h6><p>Define a área de cada motoboy no mapa e na atribuição automática.</p></div></div>
+            <div class="config-section-content">
+              <div class="theme-setting d-block mb-3" id="info-zonas-ativas"></div>
+
+              <label class="form-label small fw-bold mb-1">Importar novo arquivo KML</label>
+              <input type="file" id="arquivo-kml-zonas" class="form-control form-control-sm mb-2" accept=".kml">
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-custom-primary fw-bold flex-grow-1" onclick="importarKMLZonas()">📤 Importar e substituir zonas</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="restaurarZonasPadrao()" title="Voltar às zonas originais do sistema">↩️ Restaurar originais</button>
+              </div>
+              <div id="status-kml-zonas" class="form-text mt-2 fw-bold"></div>
+
+              <div class="alert alert-info small mt-3 mb-0">
+                <div class="fw-bold mb-1">📋 Regras do arquivo (para não quebrar nada)</div>
+                <ol class="mb-2 ps-3">
+                  <li><b>Formato .KML</b>, não KMZ. No My Maps: menu <b>⋮</b> do mapa → <i>Exportar para KML/KMZ</i> → marque a opção de exportar como <b>.KML</b> em vez de .KMZ.</li>
+                  <li>Cada zona precisa ser um <b>polígono</b> (área fechada desenhada no mapa). Pinos e linhas são ignorados.</li>
+                  <li>O <b>nome do polígono</b> deve ser igual ao do motoboy: <code>WELLINGTON</code>, <code>ROGERIO</code>, <code>GIOVANE</code> ou <code>DJAVAN</code> (ou o nome atual dele nas configurações). Maiúsculas, minúsculas e acentos não importam. Polígonos com outro nome são ignorados.</li>
+                  <li>Um motoboy pode ter <b>vários polígonos</b> com o mesmo nome (zona com mais de uma área).</li>
+                  <li>Se duas zonas se <b>sobrepõem</b>, vale a que aparece primeiro no arquivo.</li>
+                  <li>Se o arquivo tiver erro, <b>nada muda</b>: as zonas atuais continuam valendo.</li>
+                  <li>Motoboy sem polígono no arquivo <b>não recebe</b> atribuição automática de rota.</li>
+                  <li>As zonas ficam salvas <b>neste navegador</b>. Em outro computador, importe o KML de novo.</li>
+                </ol>
+                <div class="text-muted">Dica: não renomeie os polígonos depois de exportar. Se o motoboy mudar de nome, ajuste o nome do polígono no My Maps antes de exportar.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="config-section">
+            <div class="config-section-heading"><span class="config-section-icon">🧭</span><div><h6>Fundo do mapa</h6><p>Imagem de ruas exibida atrás das zonas.</p></div></div>
+            <div class="config-section-content">
+              <label class="form-label small fw-bold mb-1">Provedor</label>
+              <select id="config-mapa-provedor" class="form-select form-select-sm mb-2">
+                <option value="esri">Esri (sem chave) — padrão</option>
+                <option value="maptiler">MapTiler (chave gratuita)</option>
+                <option value="geoapify">Geoapify (chave gratuita)</option>
+              </select>
+              <label class="form-label small fw-bold mb-1">Chave de API <span class="text-muted fw-normal">(só para MapTiler/Geoapify)</span></label>
+              <input type="text" id="config-mapa-chave" class="form-control form-control-sm mb-2" placeholder="Cole a chave aqui" autocomplete="off">
+              <button class="btn btn-sm btn-custom-primary fw-bold w-100" onclick="salvarFundoMapa()">💾 Salvar fundo do mapa</button>
+              <div id="status-fundo-mapa" class="form-text mt-2 fw-bold"></div>
+              <div class="form-text small">Se o fundo do mapa ficar cinza ou com aviso de chave, troque de provedor. Crie a chave gratuita em maptiler.com ou geoapify.com e, de preferência, restrinja a chave ao domínio do sistema no painel deles. A chave fica salva só neste navegador.</div>
+            </div>
+          </section>
+            </div>
+            <div class="tab-pane fade" id="cfg-dados" role="tabpanel">
+          <section class="config-section">
+            <div class="config-section-heading"><span class="config-section-icon">📥</span><div><h6>Importar entregas</h6><p>Adicione entregas a partir de uma planilha Excel.</p></div></div>
+            <div class="config-section-content">
+              <input type="file" id="arquivo-excel-import" class="form-control form-control-sm mb-2" accept=".xlsx,.xls">
+              <button class="btn btn-sm btn-success w-100 fw-bold" onclick="processarImportacaoExcel()">🚀 Processar importação</button>
+              <div id="status-importacao" class="form-text mt-2 fw-bold"></div>
+            </div>
+          </section>
+            </div>
+            <div class="tab-pane fade" id="cfg-aparencia" role="tabpanel">
+          <section class="config-section">
+            <div class="config-section-heading"><span class="config-section-icon">🎨</span><div><h6>Aparência</h6><p>Defina como o sistema será exibido.</p></div></div>
+            <div class="config-section-content">
+              <div class="theme-setting">
+                <div><div class="theme-setting-title">🌙 Tema escuro</div><div class="theme-setting-description">Salvo neste navegador.</div></div>
+                <label class="theme-switch"><input type="checkbox" id="themeToggle"><span class="theme-slider"></span></label>
+              </div>
+            </div>
+          </section>
+            </div>
+          </div>
         </div>
         <div class="modal-footer config-modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalMapaEndereco" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="me-3 overflow-hidden">
+            <h5 class="modal-title fw-bold mb-1">🗺️ Localização do endereço</h5>
+            <div class="small text-muted text-truncate" id="mapa-endereco-texto"></div>
+          </div>
+          <button class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-0">
+          <div class="px-3 py-2 border-bottom"><span id="mapa-zona-info" class="badge text-bg-secondary fs-6"></span></div>
+          <div id="mapa-leaflet"></div>
+        </div>
+        <div class="modal-footer justify-content-between flex-wrap gap-2">
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-sm btn-outline-secondary" onclick="centralizarMapaEndereco()">📍 Voltar ao endereço</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="verTodasZonasMapa()">🗺️ Ver todas as zonas</button>
+            <a class="btn btn-sm btn-outline-secondary" id="mapa-link-google" href="#" target="_blank" rel="noopener">↗️ Abrir no Google Maps</a>
+          </div>
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        </div>
       </div>
     </div>
   </div>
@@ -626,7 +718,8 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-  <script src="app.js?v=22"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js?v=27"></script>
 </body>
 
 </html>
