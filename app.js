@@ -1101,6 +1101,7 @@ function normalizarMotos(dados) {
       const achado=Object.entries(nomesMotoboys).find(([,d])=>normalizarTexto(d.nome)===normalizarTexto(m.nome));
       motoboyId=achado?.[0]||(i<4?String(i+1):"reserva");
     }
+    if(i===4)motoboyId="reserva"; else if(motoboyId==="reserva")motoboyId=String(i+1); // moto 5 é sempre a reserva
     return {id:`moto${i+1}`,motoboyId,placa:normalizarPlaca(m.placa||p.placa)};
   });
 }
@@ -1118,6 +1119,7 @@ function salvarMotosLocalmente(){localStorage.setItem(MOTO_STORAGE_KEY,JSON.stri
 async function salvarMotos(){salvarMotosLocalmente();await dbRefMotos.set(motosParaObjeto());}
 
 function nomeVinculo(m){return m.motoboyId==="reserva"?"Moto reserva":nomeMotoboy(m.motoboyId);}
+function ehMotoReserva(m){return m?.motoboyId==="reserva";}
 
 function ordenarLancamentos(lista) {
   return [...lista].sort((a,b)=>String(b.data||"").localeCompare(String(a.data||""))||
@@ -1129,6 +1131,14 @@ function aplicarFiltroMes(lista,mes){return mes?lista.filter(x=>String(x.data||"
 function obterAbastecimentos(motoboyId,mes="") {
   return ordenarLancamentos(aplicarFiltroMes(window.motoLancamentosGlobais.filter(x=>
     x.tipo==="combustivel"&&String(x.motoboyId)===String(motoboyId)),mes));
+}
+
+// Combustível: moto comum acompanha o motoboy; a reserva acompanha a PLACA
+function obterAbastecimentosMoto(m,mes="") {
+  if(!ehMotoReserva(m))return obterAbastecimentos(m.motoboyId,mes);
+  const p=normalizarPlaca(m.placa);
+  return ordenarLancamentos(aplicarFiltroMes(window.motoLancamentosGlobais.filter(x=>
+    x.tipo==="combustivel"&&String(x.motoboyId)==="reserva"&&normalizarPlaca(x.placa)===p),mes));
 }
 
 function obterManutencoes(placa,mes="") {
@@ -1152,7 +1162,7 @@ function calcularMedia(lista) {
 }
 
 function obterKmAtual(m) {
-  const valores=[...obterAbastecimentos(m.motoboyId),...obterManutencoes(m.placa)]
+  const valores=[...obterAbastecimentosMoto(m),...obterManutencoes(m.placa)]
     .map(x=>numeroSeguro(x.km)).filter(Boolean);
   return valores.length?Math.max(...valores):0;
 }
@@ -1165,7 +1175,7 @@ function renderizarMotos() {
 
   motos.forEach((m,index)=>{
     const nome=nomeVinculo(m);
-    const combustiveis=m.motoboyId==="reserva"?[]:obterAbastecimentos(m.motoboyId,mes);
+    const combustiveis=obterAbastecimentosMoto(m,mes);
     const manutencoes=obterManutencoes(m.placa,mes);
     const media=calcularMedia(combustiveis);
     const km=obterKmAtual(m);
@@ -1177,7 +1187,7 @@ function renderizarMotos() {
       <span class="badge bg-secondary moto-badge">${km?km.toLocaleString("pt-BR")+" km":"Sem KM"}</span></div>
       <div class="row g-2 mb-3">
         <div class="col-6"><div class="moto-metric"><div class="moto-metric-label">Combustível ${mes?"no mês":"total"}</div>
-        <div class="moto-metric-value text-success">${formatarMoeda(somar(combustiveis))}</div><small class="text-muted">Motoboy: ${escaparHTML(nome)}</small></div></div>
+        <div class="moto-metric-value text-success">${formatarMoeda(somar(combustiveis))}</div><small class="text-muted">${ehMotoReserva(m)?"Placa: "+escaparHTML(m.placa):"Motoboy: "+escaparHTML(nome)}</small></div></div>
         <div class="col-6"><div class="moto-metric"><div class="moto-metric-label">Manutenção ${mes?"no mês":"total"}</div>
         <div class="moto-metric-value text-danger">${formatarMoeda(somar(manutencoes))}</div><small class="text-muted">Placa: ${escaparHTML(m.placa)}</small></div></div>
         <div class="col-6"><div class="moto-metric"><div class="moto-metric-label">Média geral</div><div class="moto-metric-value">${media.geral?media.geral.toFixed(2)+" km/L":"-"}</div></div></div>
@@ -1203,9 +1213,18 @@ function renderizarMotos() {
 
 function editarMoto(index) {
   const m=motos[index]; if(!m)return;
+  const reserva=ehMotoReserva(m);
+  const sel=elemento("moto-editar-motoboy");
   elemento("moto-editar-index").value=index;
-  elemento("moto-editar-motoboy").innerHTML=opcoesMotoboysHTML(true,m.motoboyId);
-  elemento("moto-editar-motoboy").value=m.motoboyId;
+  if(reserva){
+    sel.innerHTML=`<option value="reserva" selected>Moto reserva (fixa)</option>`;
+    sel.value="reserva"; sel.disabled=true;
+    elemento("moto-editar-aviso").textContent="A moto reserva não tem motoboy fixo. Combustível e manutenção são lançados pela placa dela.";
+  }else{
+    sel.innerHTML=opcoesMotoboysHTML(false,m.motoboyId);
+    sel.value=m.motoboyId; sel.disabled=false;
+    elemento("moto-editar-aviso").textContent="Combustível acompanha o motoboy. Manutenção acompanha a placa.";
+  }
   elemento("moto-editar-placa").value=m.placa;
   bootstrap.Modal.getOrCreateInstance(elemento("modalEditarMoto")).show();
 }
@@ -1213,10 +1232,12 @@ function editarMoto(index) {
 async function salvarEdicaoMoto() {
   const index=numeroSeguro(valorElemento("moto-editar-index"),-1);
   const m=motos[index]; if(!m)return;
-  const motoboyId=valorElemento("moto-editar-motoboy");
+  const reserva=ehMotoReserva(m);
+  const motoboyId=reserva?"reserva":valorElemento("moto-editar-motoboy");
   const placa=normalizarPlaca(valorElemento("moto-editar-placa"));
   if(!placa)return alert("Informe a placa.");
-  if(motoboyId!=="reserva"&&motos.some((x,i)=>i!==index&&x.motoboyId===motoboyId))return alert("Este motoboy já está em outro card.");
+  if(!reserva&&!nomesMotoboys[motoboyId])return alert("Selecione o motoboy.");
+  if(!reserva&&motos.some((x,i)=>i!==index&&x.motoboyId===motoboyId))return alert("Este motoboy já está em outro card.");
   m.motoboyId=motoboyId;m.placa=placa;
   await salvarMotos();
   bootstrap.Modal.getOrCreateInstance(elemento("modalEditarMoto")).hide();
@@ -1225,28 +1246,45 @@ async function salvarEdicaoMoto() {
 
 function abrirModalAbastecimento(index=-1) {
   const m=motos[index];
+  const reserva=ehMotoReserva(m);
   elemento("abastecimento-card-index").value=index;
   elemento("abastecimento-data").value=hojeISO();
   elemento("abastecimento-valor").value="";
   elemento("abastecimento-litros").value="";
   elemento("abastecimento-observacao").value="";
-  elemento("abastecimento-motoboy").innerHTML=opcoesMotoboysHTML(false,m&&m.motoboyId!=="reserva"?m.motoboyId:"");
-  elemento("abastecimento-motoboy").value=m&&m.motoboyId!=="reserva"?m.motoboyId:"";
-  const ult=m&&m.motoboyId!=="reserva"?obterAbastecimentos(m.motoboyId)[0]:null;
+  elemento("abastecimento-grupo-motoboy").classList.toggle("d-none",reserva);
+  elemento("abastecimento-grupo-placa").classList.toggle("d-none",!reserva);
+  if(reserva){
+    elemento("abastecimento-placa").value=m.placa;
+    elemento("abastecimento-aviso").textContent="O abastecimento da moto reserva é vinculado à placa dela, não a um motoboy.";
+  }else{
+    elemento("abastecimento-motoboy").innerHTML=opcoesMotoboysHTML(false,m?m.motoboyId:"");
+    elemento("abastecimento-motoboy").value=m?m.motoboyId:"";
+    elemento("abastecimento-aviso").textContent="O abastecimento será vinculado ao motoboy escolhido.";
+  }
+  const ult=m?obterAbastecimentosMoto(m)[0]:null;
   elemento("abastecimento-km").value=ult?.km||"";
   bootstrap.Modal.getOrCreateInstance(elemento("modalAbastecimento")).show();
 }
 
 async function salvarAbastecimento() {
-  const motoboyId=valorElemento("abastecimento-motoboy");
+  const m=motos[numeroSeguro(valorElemento("abastecimento-card-index"),-1)];
+  const reserva=ehMotoReserva(m);
   const valor=numeroSeguro(valorElemento("abastecimento-valor"));
   const litros=numeroSeguro(valorElemento("abastecimento-litros"));
   const km=numeroSeguro(valorElemento("abastecimento-km"));
-  if(!nomesMotoboys[motoboyId])return alert("Selecione o motoboy.");
+  let vinculo;
+  if(reserva){
+    vinculo={motoboyId:"reserva",motoboyNome:"Moto reserva",placa:normalizarPlaca(m.placa)};
+  }else{
+    const motoboyId=valorElemento("abastecimento-motoboy");
+    if(!nomesMotoboys[motoboyId])return alert("Selecione o motoboy.");
+    vinculo={motoboyId,motoboyNome:nomeMotoboy(motoboyId)};
+  }
   if(valor<=0||litros<=0||km<=0)return alert("Preencha valor, litros e KM corretamente.");
   const ref=dbRefMotoLancamentos.push();
   await ref.set({
-    id:ref.key,tipo:"combustivel",motoboyId,motoboyNome:nomeMotoboy(motoboyId),
+    id:ref.key,tipo:"combustivel",...vinculo,
     data:valorElemento("abastecimento-data")||hojeISO(),valor,litros,km,
     observacao:valorElemento("abastecimento-observacao").trim(),origem:"manual",criado_em:new Date().toISOString()
   });
@@ -1258,6 +1296,7 @@ function abrirModalManutencao(index=-1) {
   const m=motos[index];
   elemento("manutencao-card-index").value=index;
   elemento("manutencao-placa").value=m?.placa||"";
+  elemento("manutencao-placa").readOnly=ehMotoReserva(m); // reserva: sempre a placa dela
   elemento("manutencao-data").value=hojeISO();
   elemento("manutencao-valor").value="";
   elemento("manutencao-descricao").value="";
@@ -1299,7 +1338,7 @@ function abrirHistoricoCombustivel(index) {
   const m=motos[index],c=elemento("lista-historico-combustivel"),nome=nomeVinculo(m);
   elemento("titulo-historico-combustivel").textContent=`Histórico de abastecimentos - ${nome}`;
   c.innerHTML="";
-  const lista=m.motoboyId==="reserva"?[]:obterAbastecimentos(m.motoboyId,valorElemento("filtro-mes-motos"));
+  const lista=obterAbastecimentosMoto(m,valorElemento("filtro-mes-motos"));
   if(!lista.length)c.innerHTML=`<div class="text-center text-muted py-4">Nenhum abastecimento encontrado.</div>`;
   lista.forEach(x=>c.appendChild(cardHistorico(x,"combustivel",x.motoboyNome||nome)));
   bootstrap.Modal.getOrCreateInstance(elemento("modalHistoricoCombustivel")).show();

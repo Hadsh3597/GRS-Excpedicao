@@ -577,7 +577,7 @@
         </div>
         <div class="modal-body">
           <input type="hidden" id="moto-editar-index">
-          <div class="alert alert-info py-2 small">Combustível acompanha o motoboy. Manutenção acompanha a placa.</div>
+          <div class="alert alert-info py-2 small" id="moto-editar-aviso">Combustível acompanha o motoboy. Manutenção acompanha a placa.</div>
           <div class="mb-3">
             <label class="form-label">Motoboy vinculado</label>
             <select id="moto-editar-motoboy" class="form-select"></select>
@@ -605,10 +605,14 @@
         </div>
         <div class="modal-body">
           <input type="hidden" id="abastecimento-card-index" value="-1">
-          <div class="alert alert-success py-2 small">O abastecimento será vinculado ao motoboy escolhido.</div>
-          <div class="mb-3">
+          <div class="alert alert-success py-2 small" id="abastecimento-aviso">O abastecimento será vinculado ao motoboy escolhido.</div>
+          <div class="mb-3" id="abastecimento-grupo-motoboy">
             <label class="form-label">Motoboy</label>
             <select id="abastecimento-motoboy" class="form-select"></select>
+          </div>
+          <div class="mb-3 d-none" id="abastecimento-grupo-placa">
+            <label class="form-label">Placa (moto reserva)</label>
+            <input type="text" id="abastecimento-placa" class="form-control text-uppercase" readonly>
           </div>
           <div class="mb-3">
             <label class="form-label">Data</label>
@@ -719,7 +723,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js?v=27"></script>
+  <script src="app.js?v=28"></script>
 </body>
 
 </html>
