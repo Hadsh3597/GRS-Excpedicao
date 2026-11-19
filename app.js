@@ -716,8 +716,9 @@ function renderizarOcorrencias() {
 const SITUACOES_DAV = {
   vendedor: "Informado ao vendedor",
   cliente:  "Mensagem enviada ao cliente",
-  armario:     "Armário",
-  entrega:  "Entrega"
+  armario:  "Armário",
+  entrega:  "Entrega",
+  cancelar: "Cancelar"
 };
 
 /* "" = todas | "sem" = só as que não têm situação | resto = chave de SITUACOES_DAV */
